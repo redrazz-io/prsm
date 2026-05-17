@@ -1,8 +1,23 @@
-# Forge — Design Spec
+# prsm — Design Spec
 
 **Date:** 2026-05-17  
 **Status:** Draft  
 **Author:** Eduardo Leal
+
+---
+
+## Name
+
+**prsm** (pronounced "prism")
+
+A prism takes a single source beam and refracts it into multiple distinct outputs — the same signal, expressed across different wavelengths. prsm does the same: one canonical skill manifest → multiple runtime-specific artifacts. The signal (workflow semantics) is preserved; only the output medium changes.
+
+**Tagline:** *One source. Every runtime.*
+
+Alternative taglines:
+- *Refract your agent workflows.*
+- *Write skills once. Run them everywhere.*
+- *The runtime-agnostic skill compiler.*
 
 ---
 
@@ -12,9 +27,41 @@ Platform engineering teams waste significant time reproducing the same AI agent 
 
 ## Vision
 
-Forge is an open-source CLI + registry that lets teams author AI agent skills and workflows once, compile them to multiple runtimes (Claude Code, Codex CLI), share them via a GitHub-backed registry, and consume community-built presets — all with version-pinned, reproducible builds.
+prsm is an open-source CLI + registry that lets teams author AI agent skills and workflows once, compile them to multiple runtimes (Claude Code, Codex CLI), share them via a GitHub-backed registry, and consume community-built presets — all with version-pinned, reproducible builds.
 
 Analogy: **Babel/webpack for AI agent skills.** Write in a canonical format, compile to whatever runtime your team uses.
+
+---
+
+## Naming Conventions
+
+| Artifact | Convention | Example |
+|----------|-----------|---------|
+| CLI binary | `prsm` | `prsm build` |
+| npm package | `@prsm/cli` | `npm i -g @prsm/cli` |
+| Workspace manifest | `prsm.yaml` | root of any prsm workspace |
+| Lockfile | `prsm.lock` | committed to git |
+| Internal dir | `.prsm/` | gitignored deps cache |
+| Presets | `prsm-preset-<name>` | `prsm-preset-platform-engineering` |
+| Registry GitHub org | `prsm-registry` | `prsm-registry/skills` |
+| Preset GitHub org | `prsm-presets` | `prsm-presets/platform-engineering` |
+
+**prsm vs prism in docs:** The brand is always lowercase `prsm`. Pronunciation guide appears on first mention in user-facing docs ("prsm, pronounced 'prism'"). Marketing copy and the logo use `prsm` — never spell it out as `prism` to avoid conflating with PrismJS or GraphPad Prism.
+
+---
+
+## Conflict Map
+
+| Space | Name | Status |
+|-------|------|--------|
+| npm unscoped | `prsm` | Taken — abandoned 2019 placeholder, requestable |
+| npm scoped | `@prsm/cli` | **Available** |
+| npm | `prism` | Taken — dead React/Redux lib (2017) |
+| npm | `prismjs` | Active (syntax highlighter) — avoid |
+| Homebrew | `prsm` | Clear |
+| Homebrew | `prism` | GraphPad Prism (stats app) — different domain |
+
+Use `@prsm/cli` as the canonical npm package. Binary stays `prsm`.
 
 ---
 
@@ -26,18 +73,18 @@ Analogy: **Babel/webpack for AI agent skills.** Write in a canonical format, com
 | **Agent** | A specialized subagent (`AGENT.yaml` + `AGENT.md`) |
 | **Hook** | Lifecycle shell script (session-start, pre-tool-use, stop, etc.) |
 | **Preset** | A curated bundle of skills + agents + hooks + permissions |
-| **Workspace** | A repo with `forge.yaml` at root declaring everything |
+| **Workspace** | A repo with `prsm.yaml` at root declaring everything |
 | **Runtime Adapter** | Plugin that compiles workspace artifacts to a specific tool's output format |
 
-Skills and agents share the same authoring UX: YAML metadata + markdown content. Hooks are plain shell scripts — forge wires them into the correct runtime config. Adapters are the only runtime-specific code.
+Skills and agents share the same authoring UX: YAML metadata + markdown content. Hooks are plain shell scripts — prsm wires them into the correct runtime config. Adapters are the only runtime-specific code.
 
 ---
 
 ## Workspace Structure
 
 ```
-forge.yaml              # workspace manifest
-forge.lock              # pinned dependency versions (committed to git)
+prsm.yaml               # workspace manifest
+prsm.lock               # pinned dependency versions (committed to git)
 
 skills/
   <category>/
@@ -55,7 +102,7 @@ hooks/
   pretool-safety.sh
   session-stop.sh
 
-.forge/
+.prsm/
   deps/                 # installed dependency skills (gitignored)
 ```
 
@@ -63,7 +110,7 @@ hooks/
 
 ## Manifest Format
 
-### `forge.yaml`
+### `prsm.yaml`
 
 ```yaml
 name: my-platform-hub
@@ -74,7 +121,7 @@ runtimes:
   - codex
 
 extends:
-  - forge-preset-platform-engineering@^2.0.0   # optional preset
+  - prsm-preset-platform-engineering@^2.0.0   # optional preset
 
 dependencies:
   superpowers: "^5.1.0"
@@ -101,9 +148,9 @@ output:
     skills:   .agents/skills/
 
 registry:
-  url: https://raw.githubusercontent.com/forge-skills/registry/main/registry.json
+  url: https://raw.githubusercontent.com/prsm-registry/skills/main/registry.json
   # Override to point at a private registry:
-  # url: https://raw.githubusercontent.com/myorg/forge-registry/main/registry.json
+  # url: https://raw.githubusercontent.com/myorg/prsm-registry/main/registry.json
 ```
 
 ### `SKILL.yaml`
@@ -149,18 +196,18 @@ runtimes:
 ## CLI Commands
 
 ```
-forge init [name]          Scaffold a new workspace from template
-forge build                Resolve deps (if needed) + compile all skills/agents → runtime outputs
-forge install              Hydrate .forge/deps/ from forge.lock without compiling (CI, new machines)
-forge validate             Lint manifest, skill files, and lock consistency
-forge add <name>[@ver]     Install skill/preset from registry + update forge.lock
-forge remove <name>        Remove installed skill/preset
-forge publish              Publish a local skill or preset to the registry
-forge search <query>       Search the registry (--presets to filter to presets only)
-forge list                 List installed skills, agents, deps + their runtime targets
-forge eject [name]         Copy preset internals into local skills/ for customization
-forge doctor               Diagnose version mismatches between global and project-local installs
-forge explain <skill>      Show resolved configuration for a skill (origin: local/dep/preset)
+prsm init [name]          Scaffold a new workspace from template
+prsm build                Resolve deps (if needed) + compile all skills/agents → runtime outputs
+prsm install              Hydrate .prsm/deps/ from prsm.lock without compiling (CI, new machines)
+prsm validate             Lint manifest, skill files, and lock consistency
+prsm add <name>[@ver]     Install skill/preset from registry + update prsm.lock
+prsm remove <name>        Remove installed skill/preset
+prsm publish              Publish a local skill or preset to the registry
+prsm search <query>       Search the registry (--presets to filter to presets only)
+prsm list                 List installed skills, agents, deps + their runtime targets
+prsm eject [name]         Copy preset internals into local skills/ for customization
+prsm doctor               Diagnose version mismatches between global and project-local installs
+prsm explain <skill>      Show resolved configuration for a skill (origin: local/dep/preset)
 ```
 
 ---
@@ -170,33 +217,33 @@ forge explain <skill>      Show resolved configuration for a skill (origin: loca
 ### Declaring dependencies
 
 ```yaml
-# forge.yaml
+# prsm.yaml
 dependencies:
   superpowers: "^5.1.0"
   claude-mem: "~2.3.0"
   my-org/internal-skills: "1.0.0"
 ```
 
-### `forge.lock` (committed to git)
+### `prsm.lock` (committed to git)
 
 ```yaml
-# Auto-generated by forge. Do not edit manually.
+# Auto-generated by prsm. Do not edit manually.
 version: 1
 
 superpowers:
   version: 5.1.0
-  url: https://raw.githubusercontent.com/forge-skills/registry/main/superpowers/5.1.0.tar.gz
+  url: https://raw.githubusercontent.com/prsm-registry/skills/main/superpowers/5.1.0.tar.gz
   checksum: sha256:a3f9c2d8e1b047f3c9a2d5e8f1b4c7d0e3f6a9b2c5d8e1f4a7b0c3d6e9f2a5b8
 
 claude-mem:
   version: 2.3.1
-  url: https://raw.githubusercontent.com/forge-skills/registry/main/claude-mem/2.3.1.tar.gz
+  url: https://raw.githubusercontent.com/prsm-registry/skills/main/claude-mem/2.3.1.tar.gz
   checksum: sha256:b7d1e4f7a0c3d6e9f2a5b8c1d4e7f0a3b6c9d2e5f8a1b4c7d0e3f6a9b2c5d8e1
 ```
 
-`forge build` always uses `.forge/deps/` (locked versions). Version resolution never re-runs unless `forge add` or `forge install` is invoked explicitly.
+`prsm build` always uses `.prsm/deps/` (locked versions). Version resolution never re-runs unless `prsm add` or `prsm install` is invoked explicitly.
 
-Checksums protect against registry tampering — forge refuses to use a dep whose hash doesn't match the lockfile.
+Checksums protect against registry tampering — prsm refuses to use a dep whose hash doesn't match the lockfile.
 
 ### Conflict resolution: global vs. project-local
 
@@ -207,21 +254,21 @@ Both Claude Code and Codex resolve project-local skill dirs before global ones:
 .claude/skills/superpowers/     ← project-local v5.1.0, wins
 ```
 
-`forge doctor` surfaces mismatches informatively — no action required, the project version always wins.
+`prsm doctor` surfaces mismatches informatively — no action required, the project version always wins.
 
 ---
 
 ## Preset System
 
-A preset is a forge package bundling skills + agents + hooks + permission configs.
+A preset is a prsm package bundling skills + agents + hooks + permission configs.
 
 ### Consuming a preset
 
 ```yaml
-# forge.yaml
+# prsm.yaml
 extends:
-  - forge-preset-platform-engineering@^2.0.0
-  - my-org/forge-preset-internal@1.0.0
+  - prsm-preset-platform-engineering@^2.0.0
+  - my-org/prsm-preset-internal@1.0.0
 
 # Local definitions override preset on conflict
 skills:
@@ -231,7 +278,7 @@ skills:
 ### Preset structure
 
 ```
-forge-preset-platform-engineering/
+prsm-preset-platform-engineering/
   preset.yaml
   skills/
     platform/copilot/
@@ -250,11 +297,11 @@ forge-preset-platform-engineering/
 ### `preset.yaml`
 
 ```yaml
-name: forge-preset-platform-engineering
+name: prsm-preset-platform-engineering
 version: 2.0.0
 description: Full platform engineering setup — ADR lifecycle, PR review, threat modeling, Jira
 extends:
-  - forge-preset-base@^1.0.0   # presets can extend presets
+  - prsm-preset-base@^1.0.0   # presets can extend presets
 
 skills:
   - skills/platform/copilot
@@ -275,17 +322,17 @@ hooks:
 Resolution order (last wins on conflict):
 1. Base preset
 2. Extended preset (left to right)
-3. Local `forge.yaml`
+3. Local `prsm.yaml`
 
-`forge explain <skill>` shows which layer a skill came from.
+`prsm explain <skill>` shows which layer a skill came from.
 
-`forge eject [preset-name]` copies preset internals into local `skills/` — full ownership, no more preset dependency. The escape hatch that makes adoption low-risk.
+`prsm eject [preset-name]` copies preset internals into local `skills/` — full ownership, no more preset dependency. The escape hatch that makes adoption low-risk.
 
 ### Community conventions
 
-- Naming: `forge-preset-<name>` for discoverability
-- Official community presets live under the `forge-presets/` GitHub org
-- `forge search --presets` lists available presets with download counts and descriptions
+- Naming: `prsm-preset-<name>` for discoverability
+- Official community presets live under the `prsm-presets/` GitHub org
+- `prsm search --presets` lists available presets with download counts and descriptions
 
 ---
 
@@ -295,7 +342,7 @@ GitHub-backed, no custom backend for v1.
 
 ### Index format
 
-A public repo (`forge-skills/registry`) hosts `registry.json`:
+A public repo (`prsm-registry/skills`) hosts `registry.json`:
 
 ```json
 {
@@ -305,7 +352,7 @@ A public repo (`forge-skills/registry`) hosts `registry.json`:
       "description": "Claude Code superpowers skill library",
       "versions": {
         "5.1.0": {
-          "url": "https://raw.githubusercontent.com/forge-skills/registry/main/superpowers/5.1.0.tar.gz",
+          "url": "https://raw.githubusercontent.com/prsm-registry/skills/main/superpowers/5.1.0.tar.gz",
           "checksum": "sha256:a3f9c2...",
           "published": "2026-05-01T00:00:00Z"
         }
@@ -313,13 +360,13 @@ A public repo (`forge-skills/registry`) hosts `registry.json`:
       "latest": "5.1.0"
     }
   },
-  "presets": { ... }
+  "presets": { }
 }
 ```
 
-Publishing = opening a PR to the registry repo. Consuming = forge fetches the index, resolves versions, downloads tarballs.
+Publishing = opening a PR to the registry repo. Consuming = prsm fetches the index, resolves versions, downloads tarballs.
 
-The `version: 1` field in the index allows forge to migrate to a real API backend later without breaking existing `forge.lock` files.
+The `version: 1` field in the index allows prsm to migrate to a real API backend later without breaking existing `prsm.lock` files.
 
 ---
 
@@ -353,19 +400,19 @@ Adding a new runtime = adding a new adapter module. No changes to authoring form
 
 ### Distribution
 
-- **npm:** `bunx forge` / `npm i -g @forge-ai/cli` (JS bundle)
+- **npm:** `bunx @prsm/cli` / `npm i -g @prsm/cli` (JS bundle)
 - **GitHub Releases:** pre-compiled binaries (macOS arm64/x64, Linux x64, Windows x64) via `bun build --compile`
 - **Homebrew tap:** wraps the binary release
 
-The project dogfoods itself: the forge repo is itself a forge workspace (`forge.yaml` at root).
+The project dogfoods itself: the prsm repo is itself a prsm workspace (`prsm.yaml` at root).
 
 ---
 
 ## Success Criteria (v1)
 
-1. `forge init` scaffolds a working workspace in under 60 seconds
-2. `forge build` compiles skills to Claude Code + Codex outputs with zero manual steps
-3. `forge add <skill>` installs from registry, updates lockfile, recompiles
-4. `forge eject` produces locally-owned skill files identical to the preset source
-5. Two team members on different machines produce byte-identical `.claude/skills/` output from the same `forge.lock`
-6. At least one community preset ships at launch (`forge-preset-platform-engineering` seeded from platform-hub)
+1. `prsm init` scaffolds a working workspace in under 60 seconds
+2. `prsm build` compiles skills to Claude Code + Codex outputs with zero manual steps
+3. `prsm add <skill>` installs from registry, updates lockfile, recompiles
+4. `prsm eject` produces locally-owned skill files identical to the preset source
+5. Two team members on different machines produce byte-identical `.claude/skills/` output from the same `prsm.lock`
+6. At least one community preset ships at launch (`prsm-preset-platform-engineering` seeded from platform-hub)
