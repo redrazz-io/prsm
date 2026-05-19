@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { buildCommand } from "./commands/build";
 import { validateCommand } from "./commands/validate";
+import { installCommand } from "./commands/install";
 
 const program = new Command();
 
@@ -11,6 +12,7 @@ program
 
 program.addCommand(buildCommand());
 program.addCommand(validateCommand());
+program.addCommand(installCommand());
 
 export async function main() {
   await program.parseAsync(process.argv);
