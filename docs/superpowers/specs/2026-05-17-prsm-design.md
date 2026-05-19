@@ -359,9 +359,9 @@ Resolution order (last wins on conflict):
 
 ---
 
-## Dependency Declaration (Metadata Only in v1)
+## Dependency Declaration (Presence-Validated in v1)
 
-Dependencies are declared in `SKILL.md` frontmatter for forward compatibility. **In v1.0, prsm parses and validates the syntax only — zero enforcement.**
+Dependencies are declared in `SKILL.md` frontmatter for forward compatibility. **In v1.0, prsm validates syntax and checks local presence of `required: true` dependencies — it does not auto-resolve or download anything.**
 
 ```yaml
 dependencies:
@@ -374,9 +374,15 @@ dependencies:
     required: true | false
 ```
 
-**v1 behavior:** Syntax validation only. Does not resolve, download, or enforce presence.
+**v1 behavior:**
+- Syntax validation for all dependency declarations
+- For `required: true` skill dependencies with `source: local`: `prsm validate` fails with an actionable error if the referenced skill path does not exist
+- Does not download, fetch, or resolve remote dependencies
+- `required: false` deps are noted but never block validation
 
-**Post-1.0:** Can implement `prsm validate --strict` to enforce `required: true` deps, auto-resolution, and lock files without changing SKILL.md format.
+**Why this distinction matters:** A preset can declare skills that aren't installed. Without presence checks, `prsm build` produces output that looks valid but fails at invocation — silent breakage across repos. Presence checking catches this at author time with no network access required.
+
+**Post-1.0:** Add `prsm install --missing` for auto-fetch, transitive resolution, and version negotiation without changing SKILL.md format.
 
 ---
 
@@ -478,7 +484,7 @@ The project dogfoods itself: the prsm repo is itself a prsm workspace (`prsm.yam
 4. `prsm eject` produces locally-owned skill files identical to the preset source
 5. Two team members on different machines produce byte-identical `.claude/skills/` output from the same `prsm.yaml` + `prsm.lock` (lockfile ensures reproducible builds)
 6. Repo-mapping (`prsm context <repo>`, `prsm sync`) works against platform-hub reference structure
-7. `prsm validate` catches syntax errors in manifests and dependency declarations
+7. `prsm validate` catches syntax errors in manifests and dependency declarations; fails with an actionable error when a `required: true` local skill dependency is missing (no network access required)
 8. At least one community preset ships at launch (`prsm-preset-platform-engineering` seeded from platform-hub)
 9. Migration tool `prsm init --from-claude-dir` successfully converts platform-hub `.claude/` tree to prsm.yaml
 10. Preset inheritance chain resolves unambiguously; `prsm explain` shows origin for all artifacts; hooks compile only for supported runtimes (Codex builds skip hooks without error)
