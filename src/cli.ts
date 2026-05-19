@@ -6,6 +6,7 @@ import { initCommand } from "./commands/init";
 import { listCommand } from "./commands/list";
 import { explainCommand } from "./commands/explain";
 import { doctorCommand } from "./commands/doctor";
+import { ejectCommand } from "./commands/eject";
 
 const program = new Command();
 
@@ -21,6 +22,7 @@ program.addCommand(initCommand());
 program.addCommand(listCommand());
 program.addCommand(explainCommand());
 program.addCommand(doctorCommand());
+program.addCommand(ejectCommand());
 
 export async function main() {
   await program.parseAsync(process.argv);
