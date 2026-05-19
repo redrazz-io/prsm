@@ -1,0 +1,24 @@
+name: prsm
+version: 1.0.0
+author: Eduardo Leal
+
+runtimes:
+  - claude-code
+
+extends: []
+
+dependencies: {}
+
+skills: []
+
+agents: []
+
+hooks: {}
+
+repos: {}
+
+output:
+  claude-code:
+    skills: .claude/skills/
+    agents: .claude/agents/
+    settings: .claude/settings.json
