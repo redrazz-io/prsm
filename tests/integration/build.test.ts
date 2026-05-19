@@ -92,9 +92,8 @@ extends:
 `;
     await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
 
-    // Create prsm.lock with correct checksum
-    const presetYamlContent = PRESET_YAML.trim();
-    const checksum = `sha256:${await sha256Hex(presetYamlContent)}`;
+    // Create prsm.lock with correct checksum — hash raw file bytes, same as prsm install
+    const checksum = `sha256:${await sha256Hex(PRESET_YAML)}`;
     const lock: LockFile = {
       version: 1,
       presets: { "test-preset": { version: "1.0.0", url: presetDir, checksum } },
@@ -158,5 +157,69 @@ extends:
     const settings = JSON.parse(await (await import("../../src/utils/fs")).readTextFile(join(tmp, ".claude/settings.json")));
     expect(settings.myCustomKey).toBe("preserved");
     expect(settings.hooks.Stop).toBeDefined();
+  });
+
+  it("settings.json survives a second build (not deleted by clean)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`);
+    await ensureDir(join(tmp, ".claude"));
+    await writeTextFile(join(tmp, ".claude/settings.json"), JSON.stringify({ userKey: "must-survive" }, null, 2));
+
+    await compile(tmp);
+    await compile(tmp); // second build
+
+    const { readTextFile: rt } = await import("../../src/utils/fs");
+    const settings = JSON.parse(await rt(join(tmp, ".claude/settings.json")));
+    expect(settings.userKey).toBe("must-survive");
+    expect(settings.hooks.Stop).toBeDefined();
+  });
+
+  it("install then build succeeds when preset.yaml has a trailing newline", async () => {
+    const presetDir = join(tmp, "presets/test-preset");
+    await ensureDir(join(presetDir, "skills/security/preset-skill"));
+    // Trailing newline — a common POSIX file convention
+    const presetYamlWithNewline = PRESET_YAML + "\n";
+    await writeTextFile(join(presetDir, "preset.yaml"), presetYamlWithNewline);
+    await writeTextFile(join(presetDir, "skills/security/preset-skill/SKILL.md"), PRESET_SKILL_MD);
+
+    const manifestWithPreset = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ${presetDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
+
+    // Simulate prsm install: hash raw content, same as the file on disk
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+
+    // prsm build must succeed — no checksum mismatch
+    await expect(compile(tmp)).resolves.toBeUndefined();
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-preset-skill/SKILL.md"))).toBe(true);
+  });
+
+  it("pre-existing Codex skills are not deleted on prsm build", async () => {
+    const manifestCodexOnly = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - codex
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestCodexOnly);
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+
+    // Pre-existing user-authored Codex skill outside the hub- namespace
+    await ensureDir(join(tmp, ".agents/skills/hand-authored-skill"));
+    await writeTextFile(join(tmp, ".agents/skills/hand-authored-skill/SKILL.md"), "# Hand-authored");
+
+    await compile(tmp);
+
+    // prsm-generated skill must exist
+    expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+    // User-authored skill must NOT be deleted
+    expect(await fileExists(join(tmp, ".agents/skills/hand-authored-skill/SKILL.md"))).toBe(true);
   });
 });

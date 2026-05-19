@@ -26,7 +26,7 @@ export async function compile(workspaceRoot: string): Promise<void> {
     for (const presetRef of manifest.extends) {
       const presetYamlPath = join(presetRef, "preset.yaml");
       const content = await readTextFile(presetYamlPath);
-      const actualChecksum = `sha256:${await sha256Hex(content.trim())}`;
+      const actualChecksum = `sha256:${await sha256Hex(content)}`;
       const presetManifest = parsePresetManifest(content, presetYamlPath);
 
       const lockEntry = lock.presets[presetManifest.name];

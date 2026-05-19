@@ -6,6 +6,7 @@
   "scripts": {
     "build": "bun build src/cli.ts --compile --outfile dist/prsm",
     "build:bundle": "bun build src/cli.ts --outfile dist/cli.js --target bun",
+    "prepack": "bun run build:bundle",
     "test": "bun test",
     "dev": "bun run src/cli.ts"
   },

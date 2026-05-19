@@ -1,5 +1,6 @@
 import { join } from "path";
 import { writeTextFile } from "../utils/fs";
+import { trackGeneratedFile, cleanGeneratedFiles } from "../utils/generated-files";
 import matter from "gray-matter";
 import { logger } from "../utils/logger";
 import type { RuntimeAdapter, ResolvedSkill, ResolvedAgent, WorkspaceModel } from "../types";
@@ -13,6 +14,7 @@ export class CodexAdapter implements RuntimeAdapter {
     const outPath = join(outputBase, ".agents/skills", dirName, "SKILL.md");
     const compiled = matter.stringify(skill.content, skill.frontmatter as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
+    await trackGeneratedFile(outputBase, this.id, outPath);
   }
 
   // Codex has no agent concept in v1 — no-op
@@ -27,7 +29,6 @@ export class CodexAdapter implements RuntimeAdapter {
   }
 
   async clean(outputBase: string): Promise<void> {
-    const { rm } = await import("fs/promises");
-    try { await rm(join(outputBase, ".agents/skills"), { recursive: true, force: true }); } catch {}
+    await cleanGeneratedFiles(outputBase, this.id);
   }
 }
