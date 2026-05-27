@@ -1,11 +1,53 @@
-import { join } from "path";
+import { join, relative, sep } from "path";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseYaml } from "../utils/yaml";
+import { sha256Hex } from "../utils/checksum";
 import { z } from "zod";
 import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
 import { parseSkillFile, skillToResolved } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
 import { readdir } from "fs/promises";
+
+const HASH_SKIP_FILENAMES = new Set([".DS_Store", "Thumbs.db"]);
+
+async function collectPresetFiles(dir: string, root: string): Promise<string[]> {
+  const out: string[] = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      out.push(...(await collectPresetFiles(join(dir, entry.name), root)));
+    } else if (entry.isFile()) {
+      if (HASH_SKIP_FILENAMES.has(entry.name)) continue;
+      const abs = join(dir, entry.name);
+      const rel = relative(root, abs);
+      // Normalize to POSIX separators so Windows checkouts produce the same hash
+      out.push(rel.split(sep).join("/"));
+    }
+  }
+  return out;
+}
+
+function normalizeContent(text: string): string {
+  // CRLF → LF
+  const lf = text.replace(/\r\n/g, "\n");
+  // Ensure exactly one trailing newline
+  return lf.replace(/\n*$/, "\n");
+}
+
+/**
+ * SHA-256 of the full preset content tree.
+ * Deterministic across filesystems: POSIX path-sort, CRLF→LF and trailing-newline
+ * normalization. Skips OS noise files (.DS_Store, Thumbs.db).
+ */
+export async function computePresetContentHash(presetDir: string): Promise<string> {
+  const relPaths = (await collectPresetFiles(presetDir, presetDir)).sort();
+  const parts: string[] = [];
+  for (const rel of relPaths) {
+    const content = await readTextFile(join(presetDir, ...rel.split("/")));
+    parts.push(rel + "\0" + normalizeContent(content) + "\0");
+  }
+  return sha256Hex(parts.join(""));
+}
 
 const PresetManifestSchema = z.object({
   name: z.string(),
