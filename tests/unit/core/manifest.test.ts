@@ -1,14 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { parseManifest, ManifestSchema } from "../../../src/core/manifest";
+import { parseManifest } from "../../../src/core/manifest";
 
 const VALID_YAML = `
 name: my-hub
 version: 1.0.0
 runtimes:
   - claude-code
-skills:
-  - path: skills/platform/copilot
-agents: []
 hooks:
   session-start: hooks/session-start.sh
 repos: {}
@@ -24,7 +21,6 @@ describe("parseManifest", () => {
     const m = parseManifest(VALID_YAML);
     expect(m.name).toBe("my-hub");
     expect(m.runtimes).toContain("claude-code");
-    expect(m.skills).toHaveLength(1);
     expect(m.hooks["session-start"]).toBe("hooks/session-start.sh");
   });
 
@@ -32,10 +28,11 @@ describe("parseManifest", () => {
     expect(() => parseManifest("name: only-name")).toThrow();
   });
 
-  it("defaults missing optional arrays to empty", () => {
+  it("defaults missing optional fields to sensible empties", () => {
     const m = parseManifest("name: x\nversion: 1.0.0\nruntimes:\n  - claude-code");
     expect(m.extends).toEqual([]);
-    expect(m.skills).toEqual([]);
-    expect(m.agents).toEqual([]);
+    expect(m.dependencies).toEqual({});
+    expect(m.repos).toEqual({});
+    expect(m.output).toEqual({});
   });
 });

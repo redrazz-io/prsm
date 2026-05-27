@@ -7,11 +7,10 @@ describe("types", () => {
       name: "my-hub",
       version: "1.0.0",
       runtimes: ["claude-code"],
-      skills: [],
-      agents: [],
       hooks: {},
       repos: {},
       extends: [],
+      dependencies: {},
       output: {},
     };
     expect(manifest.name).toBe("my-hub");

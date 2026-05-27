@@ -9,10 +9,6 @@ extends: []
 
 dependencies: {}
 
-skills: []
-
-agents: []
-
 hooks: {}
 
 repos: {}

@@ -2,8 +2,6 @@ import { z } from "zod";
 import { parseYaml } from "../utils/yaml";
 import type { WorkspaceManifest } from "../types";
 
-const SkillRefSchema = z.object({ path: z.string() });
-const AgentRefSchema = z.object({ path: z.string() });
 const RepoEntrySchema = z.object({
   path: z.string(),
   org: z.string().optional(),
@@ -24,26 +22,47 @@ const OutputConfigSchema = z.object({
   settings: z.string().optional(),
 });
 
-export const ManifestSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-  author: z.string().optional(),
-  runtimes: z.array(z.enum(["claude-code", "codex"])).min(1),
-  extends: z.array(z.string()).default([]),
-  dependencies: z.record(z.string()).default({}),
-  skills: z.array(SkillRefSchema).default([]),
-  agents: z.array(AgentRefSchema).default([]),
-  hooks: HooksSchema,
-  repos: z.record(z.record(RepoEntrySchema)).default({}),
-  output: z.record(OutputConfigSchema).default({}),
-});
+export const ManifestSchema = z
+  .object({
+    name: z.string(),
+    version: z.string(),
+    author: z.string().optional(),
+    runtimes: z.array(z.enum(["claude-code", "codex"])).min(1),
+    extends: z.array(z.string()).default([]),
+    dependencies: z.record(z.string()).default({}),
+    hooks: HooksSchema,
+    repos: z.record(z.record(RepoEntrySchema)).default({}),
+    output: z.record(OutputConfigSchema).default({}),
+  })
+  .strict();
+
+const DIRECTORY_DISCOVERY_KEYS = new Set(["skills", "agents"]);
 
 export function parseManifest(yamlContent: string): WorkspaceManifest {
   const raw = parseYaml(yamlContent);
   const result = ManifestSchema.safeParse(raw);
   if (!result.success) {
     const issues = result.error.issues
-      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
+      .map((i) => {
+        const key = i.path[0];
+        if (
+          i.code === "unrecognized_keys" &&
+          Array.isArray((i as { keys?: unknown }).keys)
+        ) {
+          const unknown = (i as { keys: string[] }).keys;
+          const discovery = unknown.filter((k) => DIRECTORY_DISCOVERY_KEYS.has(k));
+          if (discovery.length > 0) {
+            return discovery
+              .map(
+                (k) =>
+                  `  ${k}: prsm discovers ${k} from the \`${k}/\` directory automatically — remove this field from prsm.yaml.`,
+              )
+              .join("\n");
+          }
+        }
+        const path = i.path.length > 0 ? i.path.join(".") : (typeof key === "string" ? key : "");
+        return `  ${path}: ${i.message}`;
+      })
       .join("\n");
     throw new Error(`Invalid prsm.yaml:\n${issues}`);
   }

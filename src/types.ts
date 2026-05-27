@@ -1,13 +1,5 @@
 export type Runtime = "claude-code" | "codex";
 
-export interface SkillRef {
-  path: string;
-}
-
-export interface AgentRef {
-  path: string;
-}
-
 export interface RepoEntry {
   path: string;
   org?: string;
@@ -37,8 +29,6 @@ export interface WorkspaceManifest {
   runtimes: Runtime[];
   extends: string[];
   dependencies: Record<string, string>;
-  skills: SkillRef[];
-  agents: AgentRef[];
   hooks: HooksConfig;
   repos: RepoMap;
   output: Record<string, OutputConfig>;
