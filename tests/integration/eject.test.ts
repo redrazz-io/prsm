@@ -198,6 +198,22 @@ extends:
     expect(after.extends).toEqual([]);
   });
 
+  it("preflight allows valid serialization through (happy path)", async () => {
+    // Happy path eject succeeds — proves the preflight does not false-positive
+    const presetDir = join(tmp, "presets/test-preset");
+    await setupPreset(presetDir, { permissions: ["Bash(git:*)"] });
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("Aborting");
+  });
+
   it("removes ejected presets from extends list", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await setupPreset(presetDir, {});

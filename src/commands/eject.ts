@@ -166,6 +166,17 @@ export function ejectCommand(): Command {
       doc.set("extends", currentExtends.filter((e) => !toEject.includes(e)));
 
       const serialized = stringifyYamlDocument(doc);
+
+      // PREFLIGHT: parse-back sanity check — never corrupt prsm.yaml mid-write
+      const reparsed = parseYamlDocument(serialized);
+      if (reparsed.errors.length > 0) {
+        const errs = reparsed.errors.map((e) => `  ${e.message}`).join("\n");
+        logger.error(
+          `Eject produced unparseable prsm.yaml:\n${errs}\nAborting — no changes made to prsm.yaml.`,
+        );
+        process.exit(1);
+      }
+
       await writeTextFile(join(root, "prsm.yaml"), serialized);
 
       // Update lockfile
