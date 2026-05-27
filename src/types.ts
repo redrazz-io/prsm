@@ -29,6 +29,7 @@ export interface WorkspaceManifest {
   runtimes: Runtime[];
   extends: string[];
   dependencies: Record<string, string>;
+  permissions: string[];
   hooks: HooksConfig;
   repos: RepoMap;
   output: Record<string, OutputConfig>;
@@ -112,6 +113,7 @@ export interface PresetManifest {
   agents?: string[];
   hooks?: HooksConfig;
   permissions?: string[];
+  dependencies?: Record<string, string>;
 }
 
 export interface LockEntry {

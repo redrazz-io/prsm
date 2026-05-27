@@ -3,10 +3,15 @@ import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import { parsePresetManifest } from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
 import { readTextFile, writeTextFile, ensureDir, fileExists } from "../utils/fs";
-import { parseYaml, dumpYaml } from "../utils/yaml";
+import {
+  parseYamlDocument,
+  stringifyYamlDocument,
+  type Document,
+} from "../utils/yaml";
 import { logger } from "../utils/logger";
 import { join, dirname } from "path";
 import { copyFile, readdir } from "fs/promises";
+import type { PresetManifest } from "../types";
 
 async function collectFilePaths(dir: string): Promise<string[]> {
   const paths: string[] = [];
@@ -33,6 +38,44 @@ async function copyDir(src: string, dest: string): Promise<void> {
     } else {
       await ensureDir(dirname(destPath));
       await copyFile(srcPath, destPath);
+    }
+  }
+}
+
+function mergePresetHooks(doc: Document, preset: PresetManifest): void {
+  const presetHooks = preset.hooks ?? {};
+  for (const [event, value] of Object.entries(presetHooks)) {
+    if (!value) continue;
+    const localValue = doc.getIn(["hooks", event]);
+    // Last-wins per event: local wins when it has a non-empty value
+    if (localValue === undefined || localValue === null || localValue === "") {
+      doc.setIn(["hooks", event], value);
+    }
+  }
+}
+
+function mergePresetPermissions(doc: Document, preset: PresetManifest): void {
+  const presetPerms = preset.permissions ?? [];
+  if (presetPerms.length === 0) return;
+  const localPermsNode = doc.get("permissions");
+  const localPerms: string[] = localPermsNode
+    ? ((doc.toJSON() as Record<string, unknown>).permissions as string[]) ?? []
+    : [];
+  const merged = [...localPerms];
+  for (const p of presetPerms) {
+    if (!merged.includes(p)) merged.push(p);
+  }
+  doc.set("permissions", merged);
+}
+
+function mergePresetDependencies(doc: Document, preset: PresetManifest): void {
+  const presetDeps = preset.dependencies ?? {};
+  if (Object.keys(presetDeps).length === 0) return;
+  for (const [key, value] of Object.entries(presetDeps)) {
+    const localValue = doc.getIn(["dependencies", key]);
+    // Existing keys unchanged — only add missing keys
+    if (localValue === undefined || localValue === null) {
+      doc.setIn(["dependencies", key], value);
     }
   }
 }
@@ -92,10 +135,12 @@ export function ejectCommand(): Command {
         }
       }
 
-      // EXECUTE
+      // EXECUTE — file copy
+      const presetManifests: PresetManifest[] = [];
       for (const presetRef of toEject) {
         const content = await readTextFile(join(presetRef, "preset.yaml"));
         const pm = parsePresetManifest(content, join(presetRef, "preset.yaml"));
+        presetManifests.push(pm);
         logger.info(`Ejecting ${pm.name}@${pm.version}...`);
         for (const subdir of ["skills", "agents", "hooks"]) {
           const srcDir = join(presetRef, subdir);
@@ -106,12 +151,22 @@ export function ejectCommand(): Command {
         }
       }
 
-      // Update prsm.yaml via YAML parser
+      // EXECUTE — manifest merge via Document API (preserves comments + key order)
       const manifestContent = await readTextFile(join(root, "prsm.yaml"));
-      const raw = parseYaml<Record<string, unknown>>(manifestContent);
-      const currentExtends = (raw.extends as string[]) ?? [];
-      raw.extends = currentExtends.filter((e) => !toEject.includes(e));
-      await writeTextFile(join(root, "prsm.yaml"), dumpYaml(raw));
+      const doc = parseYamlDocument(manifestContent);
+
+      for (const pm of presetManifests) {
+        mergePresetHooks(doc, pm);
+        mergePresetPermissions(doc, pm);
+        mergePresetDependencies(doc, pm);
+      }
+
+      // Update extends:
+      const currentExtends = ((doc.toJSON() as Record<string, unknown>).extends as string[]) ?? [];
+      doc.set("extends", currentExtends.filter((e) => !toEject.includes(e)));
+
+      const serialized = stringifyYamlDocument(doc);
+      await writeTextFile(join(root, "prsm.yaml"), serialized);
 
       // Update lockfile
       const lock = await readLockFile(join(root, "prsm.lock"));

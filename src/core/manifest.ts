@@ -30,6 +30,7 @@ export const ManifestSchema = z
     runtimes: z.array(z.enum(["claude-code", "codex"])).min(1),
     extends: z.array(z.string()).default([]),
     dependencies: z.record(z.string()).default({}),
+    permissions: z.array(z.string()).default([]),
     hooks: HooksSchema,
     repos: z.record(z.record(RepoEntrySchema)).default({}),
     output: z.record(OutputConfigSchema).default({}),

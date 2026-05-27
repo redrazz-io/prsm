@@ -11,6 +11,7 @@ describe("types", () => {
       repos: {},
       extends: [],
       dependencies: {},
+      permissions: [],
       output: {},
     };
     expect(manifest.name).toBe("my-hub");

@@ -64,6 +64,7 @@ const PresetManifestSchema = z.object({
     stop: z.string().optional(),
   }).default({}),
   permissions: z.array(z.string()).default([]),
+  dependencies: z.record(z.string()).default({}),
 });
 
 export function parsePresetManifest(content: string, sourcePath: string): PresetManifest {
