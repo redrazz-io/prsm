@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { compile } from "../../src/compiler/index";
 import { writeTextFile, ensureDir, fileExists } from "../../src/utils/fs";
-import { sha256Hex } from "../../src/utils/checksum";
+import { computePresetContentHash } from "../../src/core/preset";
 import { dumpYaml } from "../../src/utils/yaml";
 import { join } from "path";
 import { mkdtemp, rm } from "fs/promises";
@@ -92,8 +92,8 @@ extends:
 `;
     await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
 
-    // Create prsm.lock with correct checksum — hash raw file bytes, same as prsm install
-    const checksum = `sha256:${await sha256Hex(PRESET_YAML)}`;
+    // Create prsm.lock with correct checksum — hash the full preset content tree
+    const checksum = `sha256:${await computePresetContentHash(presetDir)}`;
     const lock: LockFile = {
       version: 1,
       presets: { "test-preset": { version: "1.0.0", url: presetDir, checksum } },
@@ -104,6 +104,67 @@ extends:
     await compile(tmp);
 
     expect(await fileExists(join(tmp, ".claude/skills/hub-security-preset-skill/SKILL.md"))).toBe(true);
+  });
+
+  // CRITICAL REGRESSION (AE1): mutating any file inside an installed preset
+  // must cause prsm compile to fail. Pre-U4, the checksum hashed only
+  // preset.yaml — so editing skills/foo/SKILL.md was undetected.
+  it("compile fails when a SKILL.md inside an installed preset is mutated", async () => {
+    const presetDir = join(tmp, "presets/test-preset");
+    await ensureDir(join(presetDir, "skills/security/preset-skill"));
+    await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
+    await writeTextFile(join(presetDir, "skills/security/preset-skill/SKILL.md"), PRESET_SKILL_MD);
+
+    const manifestWithPreset = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ${presetDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+
+    // Tamper with the SKILL.md (the bug U4 closes)
+    await writeTextFile(
+      join(presetDir, "skills/security/preset-skill/SKILL.md"),
+      PRESET_SKILL_MD + "\nMALICIOUS APPEND\n",
+    );
+
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
+  });
+
+  it("compile fails when an AGENT.md inside an installed preset is mutated", async () => {
+    const presetDir = join(tmp, "presets/test-preset");
+    await ensureDir(join(presetDir, "agents/my-agent"));
+    await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
+    await writeTextFile(
+      join(presetDir, "agents/my-agent/AGENT.md"),
+      "---\nname: my-agent\ndescription: x\n---\nbody\n",
+    );
+
+    const manifestWithPreset = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ${presetDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+
+    await writeTextFile(
+      join(presetDir, "agents/my-agent/AGENT.md"),
+      "---\nname: my-agent\ndescription: tampered\n---\nbody\n",
+    );
+
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
 
   it("throws when extends declared but prsm.lock missing", async () => {

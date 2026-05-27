@@ -3,9 +3,8 @@ import { loadWorkspace } from "../core/workspace";
 import { mergeLayers } from "./merger";
 import { getAdapter } from "../adapters/index";
 import { readLockFile } from "../core/lockfile";
-import { loadPresetAsLayer, parsePresetManifest } from "../core/preset";
+import { loadPresetAsLayer, parsePresetManifest, computePresetContentHash } from "../core/preset";
 import { readTextFile } from "../utils/fs";
-import { sha256Hex } from "../utils/checksum";
 import { logger } from "../utils/logger";
 import type { WorkspaceModel } from "../types";
 
@@ -26,7 +25,7 @@ export async function compile(workspaceRoot: string): Promise<void> {
     for (const presetRef of manifest.extends) {
       const presetYamlPath = join(presetRef, "preset.yaml");
       const content = await readTextFile(presetYamlPath);
-      const actualChecksum = `sha256:${await sha256Hex(content)}`;
+      const actualChecksum = `sha256:${await computePresetContentHash(presetRef)}`;
       const presetManifest = parsePresetManifest(content, presetYamlPath);
 
       const lockEntry = lock.presets[presetManifest.name];

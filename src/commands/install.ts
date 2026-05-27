@@ -1,8 +1,7 @@
 import { Command } from "commander";
 import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { parsePresetManifest } from "../core/preset";
+import { parsePresetManifest, computePresetContentHash } from "../core/preset";
 import { writeLockFile, createLockFile } from "../core/lockfile";
-import { sha256Hex } from "../utils/checksum";
 import { readTextFile, fileExists } from "../utils/fs";
 import { logger } from "../utils/logger";
 import { join } from "path";
@@ -19,7 +18,7 @@ export async function runInstall(root: string): Promise<void> {
     }
     const content = await readTextFile(presetYamlPath);
     const presetManifest = parsePresetManifest(content, presetYamlPath);
-    const checksum = `sha256:${await sha256Hex(content)}`;
+    const checksum = `sha256:${await computePresetContentHash(presetRef)}`;
     presetEntries[presetManifest.name] = { version: presetManifest.version, url: presetRef, checksum };
     logger.success(`Resolved ${presetManifest.name}@${presetManifest.version}`);
   }
