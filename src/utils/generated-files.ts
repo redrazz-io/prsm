@@ -28,3 +28,29 @@ export async function cleanGeneratedFiles(outputBase: string, adapterId: string)
   }
   await rm(mPath, { force: true });
 }
+
+function managedHooksPath(outputBase: string, adapterId: string): string {
+  return join(outputBase, `.prsm/managed-hooks-${adapterId}.json`);
+}
+
+/**
+ * The hook event names prsm wrote into the runtime's settings on the last
+ * build. Used to drop prsm-managed hooks that were since removed from
+ * prsm.yaml, without clobbering user-authored hooks for other events (#5).
+ * This tracking deliberately survives `clean()` — it describes settings.json,
+ * a shared user file that prsm does not delete.
+ */
+export async function readManagedHookEvents(outputBase: string, adapterId: string): Promise<string[]> {
+  const p = managedHooksPath(outputBase, adapterId);
+  if (!(await fileExists(p))) return [];
+  try { return JSON.parse(await readTextFile(p)) as string[]; } catch { return []; }
+}
+
+export async function writeManagedHookEvents(
+  outputBase: string,
+  adapterId: string,
+  events: string[],
+): Promise<void> {
+  await ensureDir(join(outputBase, ".prsm"));
+  await writeTextFile(managedHooksPath(outputBase, adapterId), JSON.stringify(events, null, 2));
+}

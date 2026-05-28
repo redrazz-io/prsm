@@ -1,6 +1,11 @@
 import { join, dirname } from "path";
 import { writeTextFile, readTextFile, ensureDir, fileExists } from "../utils/fs";
-import { trackGeneratedFile, cleanGeneratedFiles } from "../utils/generated-files";
+import {
+  trackGeneratedFile,
+  cleanGeneratedFiles,
+  readManagedHookEvents,
+  writeManagedHookEvents,
+} from "../utils/generated-files";
 import matter from "gray-matter";
 import type { RuntimeAdapter, ResolvedSkill, ResolvedAgent, WorkspaceModel, OutputConfig } from "../types";
 
@@ -76,9 +81,16 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       : [];
     const mergedAllow = [...new Set([...existingAllow, ...model.permissions])];
 
+    // Drop hooks prsm wrote on the previous build before merging the current
+    // set, so a hook removed from prsm.yaml disappears from settings.json (#5).
+    // User-authored hooks for events prsm doesn't manage are left untouched.
+    const previouslyManaged = await readManagedHookEvents(outputBase, this.id);
+    const existingHooks = { ...(existing.hooks as Record<string, unknown> ?? {}) };
+    for (const event of previouslyManaged) delete existingHooks[event];
+
     const merged = {
       ...existing,
-      hooks: { ...(existing.hooks as Record<string, unknown> ?? {}), ...prsmHooks },
+      hooks: { ...existingHooks, ...prsmHooks },
       permissions: {
         ...(existing.permissions as Record<string, unknown> ?? {}),
         allow: mergedAllow,
@@ -88,6 +100,7 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     await ensureDir(dirname(settingsPath));
     await writeTextFile(settingsPath, JSON.stringify(merged, null, 2));
     // settings.json is a shared user file — not tracked as prsm-generated
+    await writeManagedHookEvents(outputBase, this.id, Object.keys(prsmHooks));
   }
 
   async clean(outputBase: string): Promise<void> {

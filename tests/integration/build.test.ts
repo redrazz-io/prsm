@@ -435,6 +435,44 @@ runtimes:
     expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
   });
 
+  it("drops a prsm-managed hook from settings.json when removed from prsm.yaml (#5)", async () => {
+    const { readTextFile } = await import("../../src/utils/fs");
+    const settingsPath = join(tmp, ".claude/settings.json");
+
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n  pre-tool-use: hooks/safety.sh\n`);
+    await compile(tmp);
+    let settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined();
+    expect(settings.hooks.PreToolUse).toBeDefined();
+
+    // Remove pre-tool-use from prsm.yaml and rebuild — the stale hook must go.
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`);
+    await compile(tmp);
+    settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined();
+    expect(settings.hooks.PreToolUse).toBeUndefined();
+  });
+
+  it("preserves user-authored hooks for events prsm does not manage (#5)", async () => {
+    const { readTextFile } = await import("../../src/utils/fs");
+    const settingsPath = join(tmp, ".claude/settings.json");
+
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`);
+    await ensureDir(join(tmp, ".claude"));
+    // A hook under an event prsm never manages — must survive regeneration.
+    await writeTextFile(
+      settingsPath,
+      JSON.stringify({
+        hooks: { Notification: [{ matcher: "", hooks: [{ type: "command", command: "./n.sh" }] }] },
+      }),
+    );
+
+    await compile(tmp);
+    const settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined(); // prsm-managed
+    expect(settings.hooks.Notification).toBeDefined(); // user-authored, preserved
+  });
+
   it("pre-existing Codex skills are not deleted on prsm build", async () => {
     const manifestCodexOnly = `
 name: test-ws
