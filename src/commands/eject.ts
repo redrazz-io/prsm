@@ -42,15 +42,39 @@ async function copyDir(src: string, dest: string): Promise<void> {
   }
 }
 
-function mergePresetHooks(doc: Document, preset: PresetManifest): void {
-  const presetHooks = preset.hooks ?? {};
-  for (const [event, value] of Object.entries(presetHooks)) {
-    if (!value) continue;
-    const localValue = doc.getIn(["hooks", event]);
-    // Last-wins per event: local wins when it has a non-empty value
-    if (localValue === undefined || localValue === null || localValue === "") {
-      doc.setIn(["hooks", event], value);
+/**
+ * Compute the post-eject hooks state by replaying the build-time merge once
+ * across all ejected presets, then overlaying the doc's original local hooks.
+ *
+ * This must match `mergeLayers` in src/compiler/merger.ts: later presets win
+ * over earlier presets per event, and local hooks override everything (an
+ * explicit empty-string local value is a valid suppression — the build path
+ * already treats empty strings as "no hook").
+ *
+ * Per-preset hook merge is wrong here because writing one preset into the
+ * document before merging the next would make the first preset win.
+ */
+function applyPresetHookMerge(
+  doc: Document,
+  originalLocalHooks: Record<string, unknown>,
+  presetManifests: PresetManifest[],
+): void {
+  const effective: Record<string, string> = {};
+  for (const pm of presetManifests) {
+    const ph = (pm.hooks ?? {}) as Record<string, unknown>;
+    for (const [event, value] of Object.entries(ph)) {
+      if (value == null) continue;
+      effective[event] = value as string;
     }
+  }
+  // Local overlays — preserve every set value, including empty string (suppression)
+  for (const [event, value] of Object.entries(originalLocalHooks)) {
+    if (value == null) continue;
+    effective[event] = value as string;
+  }
+
+  for (const [event, value] of Object.entries(effective)) {
+    doc.setIn(["hooks", event], value);
   }
 }
 
@@ -155,8 +179,12 @@ export function ejectCommand(): Command {
       const manifestContent = await readTextFile(join(root, "prsm.yaml"));
       const doc = parseYamlDocument(manifestContent);
 
+      // Snapshot the original local hooks BEFORE any preset writes — used to
+      // overlay local-wins semantics in applyPresetHookMerge.
+      const originalLocalHooks = ((doc.toJSON() as Record<string, unknown>)?.hooks ?? {}) as Record<string, unknown>;
+
+      applyPresetHookMerge(doc, originalLocalHooks, presetManifests);
       for (const pm of presetManifests) {
-        mergePresetHooks(doc, pm);
         mergePresetPermissions(doc, pm);
         mergePresetDependencies(doc, pm);
       }

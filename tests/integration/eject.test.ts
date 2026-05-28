@@ -198,6 +198,57 @@ extends:
     expect(after.extends).toEqual([]);
   });
 
+  it("two presets defining the same hook: LAST preset wins (matches mergeLayers, C1 regression)", async () => {
+    const presetA = join(tmp, "presets/preset-a");
+    const presetB = join(tmp, "presets/preset-b");
+    await setupPreset(presetA, { hooks: { "session-start": "./hooks/a.sh" } });
+    await setupPreset(presetB, { hooks: { "session-start": "./hooks/b.sh" } });
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetA}
+  - ${presetB}
+hooks: {}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    if (code !== 0) console.error(stderr);
+
+    const after = parseYaml<{ hooks: Record<string, string> }>(await readTextFile(join(tmp, "prsm.yaml")));
+    // LAST preset wins, matching compiler/merger.ts mergeLayers semantics.
+    // Before C1 fix, this was './hooks/a.sh' (first preset won) — divergent from build.
+    expect(after.hooks["session-start"]).toBe("./hooks/b.sh");
+  });
+
+  it("explicit empty-string local hook suppresses preset hook (C1 regression)", async () => {
+    // The build path treats empty-string hook values as "no hook" — so an
+    // explicit empty string in prsm.yaml is a deliberate suppression that
+    // must survive eject. Before C1, eject treated empty string as missing
+    // and let preset values override.
+    const presetDir = join(tmp, "presets/test-preset");
+    await setupPreset(presetDir, { hooks: { "session-start": "./hooks/preset.sh" } });
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetDir}
+hooks:
+  session-start: ""
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code } = await runEject(tmp);
+    expect(code).toBe(0);
+
+    const after = parseYaml<{ hooks: Record<string, string> }>(await readTextFile(join(tmp, "prsm.yaml")));
+    expect(after.hooks["session-start"]).toBe("");
+  });
+
   it("preflight allows valid serialization through (happy path)", async () => {
     // Happy path eject succeeds — proves the preflight does not false-positive
     const presetDir = join(tmp, "presets/test-preset");
