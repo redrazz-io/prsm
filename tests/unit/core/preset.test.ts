@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile, mkdir } from "fs/promises";
+import { mkdtemp, rm, writeFile, mkdir, symlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { computePresetContentHash } from "../../../src/core/preset";
@@ -94,5 +94,32 @@ describe("computePresetContentHash", () => {
     await writeFileAt("Thumbs.db", "windows noise");
     const after = await computePresetContentHash(tmp);
     expect(baseline).toBe(after);
+  });
+
+  it("rejects symlinked SKILL.md (C3 integrity-bypass regression)", async () => {
+    await writeFileAt("preset.yaml", "name: x\nversion: 1.0.0\n");
+    // Real target lives outside the preset; the symlink lives inside.
+    const targetDir = await mkdtemp(join(tmpdir(), "prsm-symlink-target-"));
+    try {
+      await writeFile(join(targetDir, "SKILL.md"), "real content\n", "utf-8");
+      await mkdir(join(tmp, "skills/cat/foo"), { recursive: true });
+      await symlink(join(targetDir, "SKILL.md"), join(tmp, "skills/cat/foo/SKILL.md"));
+      await expect(computePresetContentHash(tmp)).rejects.toThrow(/Symbolic links are not allowed/);
+    } finally {
+      await rm(targetDir, { recursive: true });
+    }
+  });
+
+  it("rejects symlinked hook script (C3 integrity-bypass regression)", async () => {
+    await writeFileAt("preset.yaml", "name: x\nversion: 1.0.0\n");
+    const targetDir = await mkdtemp(join(tmpdir(), "prsm-symlink-hook-"));
+    try {
+      await writeFile(join(targetDir, "hook.sh"), "#!/bin/bash\necho hi\n", "utf-8");
+      await mkdir(join(tmp, "hooks"), { recursive: true });
+      await symlink(join(targetDir, "hook.sh"), join(tmp, "hooks/session-start.sh"));
+      await expect(computePresetContentHash(tmp)).rejects.toThrow(/Symbolic links are not allowed/);
+    } finally {
+      await rm(targetDir, { recursive: true });
+    }
   });
 });

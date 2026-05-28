@@ -14,6 +14,17 @@ async function collectPresetFiles(dir: string, root: string): Promise<string[]> 
   const out: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      // Symlinks bypass integrity: readTextFile follows them at build time, but
+      // Dirent.isFile() is false for symlinks — so the symlink target is read
+      // by compile but not included in the hash. Reject explicitly.
+      const abs = join(dir, entry.name);
+      const rel = relative(root, abs).split(sep).join("/");
+      throw new Error(
+        `Symbolic links are not allowed inside presets — found "${rel}". ` +
+          `Replace symlinks with real files (or remove them) before running prsm install.`,
+      );
+    }
     if (entry.isDirectory()) {
       out.push(...(await collectPresetFiles(join(dir, entry.name), root)));
     } else if (entry.isFile()) {
