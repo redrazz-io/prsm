@@ -111,6 +111,33 @@ These are features that would be valuable but are out of scope for MVP.
 
 ---
 
+## Pre-Block-1 Adversarial Findings (deferred)
+
+Surfaced by Codex bot reviews on PR #1 during the Block 1 closeout (2026-05-27 / -28).
+These are real bugs that pre-date Block 1 — flagged here for follow-up work, not blocking v1.0 ship.
+
+### P1 — Per-item `frontmatter.runtimes` filter ignored in compile loop
+- **Where:** `src/compiler/index.ts:74`
+- **Bug:** The build loop emits every resolved skill and agent to every workspace runtime, ignoring each item's `frontmatter.runtimes`. A skill declared for Claude only is still emitted to Codex when the workspace runs both runtimes.
+- **Fix shape:** Filter `model.skills` / `model.agents` per runtime inside the for-runtime loop, using each item's `frontmatter.runtimes` (default to all runtimes if absent).
+
+### P1 — `loadPresetAsLayer` does not resolve transitive preset `extends:`
+- **Where:** `src/core/preset.ts:80` (`loadPresetAsLayer`)
+- **Bug:** `preset.yaml` supports an `extends:` array, but `loadPresetAsLayer` only reads files from the current preset directory — it never recursively loads the chain. A preset that extends another preset silently inherits nothing.
+- **Fix shape:** Recursively resolve `manifest.extends` inside `loadPresetAsLayer` and merge layers in order. Add cycle detection.
+
+### P2 — Stale prsm-managed hooks survive `settings.json` regeneration
+- **Where:** `src/adapters/claude-code.ts:67` (`generateConfig`)
+- **Bug:** Hook generation merges `existing.hooks` with `prsmHooks` via `{ ...existing, ...new }`, which preserves old prsm-managed entries even after they are removed from `prsm.yaml`. The compiled `.claude/settings.json` keeps running deleted hooks.
+- **Fix shape:** Track prsm-managed hook event names separately (similar to `generated-files.json`) and drop them from existing before merging in new ones. Or namespace prsm hooks under a known key.
+
+### P2 — Relative preset paths resolve from CWD, not workspace root
+- **Where:** `src/compiler/index.ts:28` (compile preset loop)
+- **Bug:** When `prsm.yaml` uses a relative `extends:` path (e.g., `./presets/platform`) and `prsm build` is invoked from a subdirectory, `findWorkspaceRoot` correctly locates the workspace, but the preset-loading loop still resolves the path against `process.cwd()` instead of the workspace root.
+- **Fix shape:** Resolve `presetRef` against `workspaceRoot` before passing to `parsePresetManifest` / `loadPresetAsLayer`.
+
+---
+
 ## Definition of Done for v1.0
 
 - [ ] Architecture docs complete (repo-mapping, config delivery, presets, runtime adapters)

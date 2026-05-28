@@ -1,0 +1,27 @@
+{
+  "name": "@prsm/prsm",
+  "version": "1.0.0",
+  "description": "Wire your AI stack once, deploy to any runtime.",
+  "bin": {
+    "prsm": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --compile --outfile dist/prsm",
+    "build:bundle": "bun build src/cli.ts --outfile dist/cli.js --target bun",
+    "prepack": "bun run build:bundle",
+    "test": "bun test",
+    "dev": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "gray-matter": "^4.0.3",
+    "semver": "^7.6.2",
+    "yaml": "^2.9.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.5.8",
+    "typescript": "^5.4.5"
+  }
+}
