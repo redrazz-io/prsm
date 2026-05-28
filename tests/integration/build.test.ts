@@ -384,6 +384,57 @@ output:
     expect(settings.permissions.allow).toContain("Read(./docs/**)");
   });
 
+  it("honors custom output: paths from prsm.yaml (#9)", async () => {
+    const manifest = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+hooks:
+  stop: hooks/stop.sh
+output:
+  claude-code:
+    skills: custom/skills/
+    agents: custom/agents/
+    settings: custom/settings.json
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+    await ensureDir(join(tmp, "agents/my-agent"));
+    await writeTextFile(
+      join(tmp, "agents/my-agent/AGENT.md"),
+      "---\nname: my-agent\ndescription: an agent\n---\nbody\n",
+    );
+
+    await compile(tmp);
+
+    // Outputs land at the configured paths.
+    expect(await fileExists(join(tmp, "custom/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, "custom/agents/my-agent.md"))).toBe(true);
+    expect(await fileExists(join(tmp, "custom/settings.json"))).toBe(true);
+
+    // The hardcoded defaults are NOT used when output: overrides them.
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(false);
+    expect(await fileExists(join(tmp, ".claude/settings.json"))).toBe(false);
+  });
+
+  it("falls back to default output paths when output: is absent (#9 default)", async () => {
+    const manifest = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+  });
+
   it("pre-existing Codex skills are not deleted on prsm build", async () => {
     const manifestCodexOnly = `
 name: test-ws

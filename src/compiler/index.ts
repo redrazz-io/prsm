@@ -86,12 +86,15 @@ export async function compile(workspaceRoot: string): Promise<void> {
     const skillsForRuntime = model.skills.filter((s) => targetsRuntime(s.frontmatter.runtimes, runtime));
     const agentsForRuntime = model.agents.filter((a) => targetsRuntime(a.frontmatter.runtimes, runtime));
 
+    // Per-runtime output paths from prsm.yaml (#9); adapters fall back to defaults.
+    const output = model.output[runtime];
+
     for (const skill of skillsForRuntime) {
-      await adapter.compileSkill(skill, workspaceRoot);
+      await adapter.compileSkill(skill, workspaceRoot, output);
     }
 
     for (const agent of agentsForRuntime) {
-      await adapter.compileAgent(agent, workspaceRoot);
+      await adapter.compileAgent(agent, workspaceRoot, output);
     }
 
     await adapter.generateConfig(model, workspaceRoot);
