@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { writeTextFile, ensureDir, readTextFile } from "../../src/utils/fs";
+import { writeTextFile, ensureDir, readTextFile, fileExists } from "../../src/utils/fs";
 import { parseYaml } from "../../src/utils/yaml";
 import { join } from "path";
 import { mkdtemp, rm } from "fs/promises";
@@ -263,6 +263,43 @@ extends:
     const { code, stderr } = await runEject(tmp);
     expect(code).toBe(0);
     expect(stderr).not.toContain("Aborting");
+  });
+
+  it("makes no filesystem changes when a later preset fails to parse (#7 transactional)", async () => {
+    // Preset A is valid and carries a skill file. Preset B has an invalid
+    // preset.yaml (missing version) that fails parsing. Pre-fix, eject parsed
+    // and copied A inside the EXECUTE loop before reaching B, so A's files were
+    // left behind on B's parse failure. The fix moves all parsing into
+    // preflight, so nothing is copied when any preset is invalid.
+    const presetA = join(tmp, "presets/preset-a");
+    const presetB = join(tmp, "presets/preset-b");
+    await setupPreset(presetA, {});
+    await ensureDir(join(presetA, "skills/cat/from-a"));
+    await writeTextFile(
+      join(presetA, "skills/cat/from-a/SKILL.md"),
+      `---\nname: from-a\ndescription: from preset a\ncategory: cat\n---\n# from-a\n`,
+    );
+    // Invalid: no `version` — parsePresetManifest rejects this.
+    await ensureDir(presetB);
+    await writeTextFile(join(presetB, "preset.yaml"), "name: bad-preset\n");
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetA}
+  - ${presetB}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    const before = await readTextFile(join(tmp, "prsm.yaml"));
+
+    const { code } = await runEject(tmp);
+    expect(code).not.toBe(0);
+
+    // Transactional guarantee: preset A's skill must NOT have been copied.
+    expect(await fileExists(join(tmp, "skills/cat/from-a/SKILL.md"))).toBe(false);
+    // prsm.yaml must be untouched (extends still lists both presets).
+    expect(await readTextFile(join(tmp, "prsm.yaml"))).toBe(before);
   });
 
   it("removes ejected presets from extends list", async () => {
