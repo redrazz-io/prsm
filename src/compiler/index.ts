@@ -6,7 +6,16 @@ import { readLockFile } from "../core/lockfile";
 import { loadPresetAsLayer, parsePresetManifest, computePresetContentHash } from "../core/preset";
 import { readTextFile } from "../utils/fs";
 import { logger } from "../utils/logger";
-import type { WorkspaceModel } from "../types";
+import type { WorkspaceModel, Runtime } from "../types";
+
+/**
+ * Whether an item with the given frontmatter.runtimes should be emitted for a
+ * runtime. Absent or empty list = all runtimes (default).
+ */
+function targetsRuntime(itemRuntimes: Runtime[] | undefined, runtime: Runtime): boolean {
+  if (!itemRuntimes || itemRuntimes.length === 0) return true;
+  return itemRuntimes.includes(runtime);
+}
 
 export async function compile(workspaceRoot: string): Promise<void> {
   const ws = await loadWorkspace(workspaceRoot);
@@ -69,16 +78,21 @@ export async function compile(workspaceRoot: string): Promise<void> {
 
     await adapter.clean(workspaceRoot);
 
-    for (const skill of model.skills) {
+    // Each item may scope itself to specific runtimes via frontmatter.runtimes.
+    // An absent or empty list means "all runtimes" (the common case).
+    const skillsForRuntime = model.skills.filter((s) => targetsRuntime(s.frontmatter.runtimes, runtime));
+    const agentsForRuntime = model.agents.filter((a) => targetsRuntime(a.frontmatter.runtimes, runtime));
+
+    for (const skill of skillsForRuntime) {
       await adapter.compileSkill(skill, workspaceRoot);
     }
 
-    for (const agent of model.agents) {
+    for (const agent of agentsForRuntime) {
       await adapter.compileAgent(agent, workspaceRoot);
     }
 
     await adapter.generateConfig(model, workspaceRoot);
 
-    logger.success(`${adapter.displayName}: ${model.skills.length} skills, ${model.agents.length} agents`);
+    logger.success(`${adapter.displayName}: ${skillsForRuntime.length} skills, ${agentsForRuntime.length} agents`);
   }
 }

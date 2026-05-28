@@ -66,6 +66,41 @@ describe("compile", () => {
     expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
   });
 
+  it("filters per-item frontmatter.runtimes when emitting to each adapter (#3)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    // A skill declared for claude-code only — must NOT reach the Codex output.
+    await ensureDir(join(tmp, "skills/platform/claude-only"));
+    await writeTextFile(
+      join(tmp, "skills/platform/claude-only/SKILL.md"),
+      `---
+name: claude-only
+description: Claude-only skill
+category: platform
+runtimes:
+  - claude-code
+---
+# Claude Only
+`,
+    );
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-claude-only/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".agents/skills/hub-platform-claude-only/SKILL.md"))).toBe(false);
+  });
+
+  it("emits items with no frontmatter.runtimes to every workspace runtime (#3 default)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    // SKILL_MD has no `runtimes:` field — defaults to all workspace runtimes.
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+  });
+
   it("generates .claude/settings.json when hooks are declared", async () => {
     const manifestWithHooks = MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`;
     await writeTextFile(join(tmp, "prsm.yaml"), manifestWithHooks);
