@@ -66,6 +66,41 @@ describe("compile", () => {
     expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
   });
 
+  it("filters per-item frontmatter.runtimes when emitting to each adapter (#3)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    // A skill declared for claude-code only — must NOT reach the Codex output.
+    await ensureDir(join(tmp, "skills/platform/claude-only"));
+    await writeTextFile(
+      join(tmp, "skills/platform/claude-only/SKILL.md"),
+      `---
+name: claude-only
+description: Claude-only skill
+category: platform
+runtimes:
+  - claude-code
+---
+# Claude Only
+`,
+    );
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-claude-only/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".agents/skills/hub-platform-claude-only/SKILL.md"))).toBe(false);
+  });
+
+  it("emits items with no frontmatter.runtimes to every workspace runtime (#3 default)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    // SKILL_MD has no `runtimes:` field — defaults to all workspace runtimes.
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+  });
+
   it("generates .claude/settings.json when hooks are declared", async () => {
     const manifestWithHooks = MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`;
     await writeTextFile(join(tmp, "prsm.yaml"), manifestWithHooks);
@@ -132,6 +167,43 @@ extends:
     await writeTextFile(
       join(presetDir, "skills/security/preset-skill/SKILL.md"),
       PRESET_SKILL_MD + "\nMALICIOUS APPEND\n",
+    );
+
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
+  });
+
+  it("compile fails when a TRANSITIVE (extended) preset is mutated after install (Codex #1)", async () => {
+    // base <- team(extends base) <- workspace(extends team). Mutating base
+    // after install must be caught: install locks the full closure and compile
+    // verifies every transitive preset, not just the workspace's direct extends.
+    const baseDir = join(tmp, "presets/base");
+    const teamDir = join(tmp, "presets/team");
+    await ensureDir(join(baseDir, "skills/security/from-base"));
+    await writeTextFile(join(baseDir, "preset.yaml"), "name: base\nversion: 1.0.0\n");
+    await writeTextFile(
+      join(baseDir, "skills/security/from-base/SKILL.md"),
+      `---\nname: from-base\ndescription: base skill\ncategory: security\n---\n# from-base\n`,
+    );
+    await ensureDir(teamDir);
+    await writeTextFile(join(teamDir, "preset.yaml"), `name: team\nversion: 1.0.0\nextends:\n  - ${baseDir}\n`);
+
+    const manifestWithPreset = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ${teamDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+
+    // Tamper with the TRANSITIVE base preset (not the direct one)
+    await writeTextFile(
+      join(baseDir, "skills/security/from-base/SKILL.md"),
+      `---\nname: from-base\ndescription: base skill\ncategory: security\n---\n# from-base\nTAMPERED\n`,
     );
 
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");

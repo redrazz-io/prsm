@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { parsePresetManifest } from "../core/preset";
+import { resolvePresetClosure, type ResolvedPreset } from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
 import { readTextFile, writeTextFile, ensureDir, fileExists } from "../utils/fs";
 import {
@@ -125,21 +125,46 @@ export function ejectCommand(): Command {
         process.exit(0);
       }
 
-      // PREFLIGHT: all preset dirs must exist
-      for (const presetRef of toEject) {
-        const presetYamlPath = join(presetRef, "preset.yaml");
-        if (!(await fileExists(presetYamlPath))) {
-          logger.error(`Preset not found at ${presetRef}. Aborting — no changes made.`);
-          process.exit(1);
+      // ── PREFLIGHT ──────────────────────────────────────────────────────
+      // Everything that can fail runs here, BEFORE any disk mutation. Once we
+      // reach EXECUTE, only file writes remain — so a parse/merge failure can
+      // never leave the workspace half-ejected (#7 transactional guarantee).
+
+      // PREFLIGHT: resolve the full transitive closure of every preset being
+      // ejected. resolvePresetClosure validates preset.yaml existence, parses
+      // every manifest, and rejects cycles — so this single call replaces the
+      // dir-exists + parse-each-manifest preflights. Crucially it also pulls in
+      // transitively-extended presets, so eject leaves a self-contained
+      // workspace instead of dropping inherited content (Codex #2).
+      //
+      // Concatenate each DIRECT preset's closure in declaration order WITHOUT
+      // deduping across direct presets — build treats each direct `extends`
+      // entry as its own layer in order (later wins), and
+      // mergeLayers([merge(base,team), base]) equals the flat replay
+      // [base, team, base]. A global dedupe that kept the first occurrence would
+      // let the transitive copy win over a later direct one, diverging from
+      // build output (Codex #3). Redundant copies of a shared base are
+      // idempotent (same bytes) and land in the precedence-correct order.
+      let closurePresets: ResolvedPreset[];
+      try {
+        const flattened: ResolvedPreset[] = [];
+        for (const presetRef of toEject) {
+          flattened.push(...(await resolvePresetClosure(presetRef)));
         }
+        closurePresets = flattened;
+      } catch (err) {
+        logger.error(`${String(err)}\nAborting — no changes made.`);
+        process.exit(1);
       }
 
-      // PREFLIGHT: collision check
+      const presetManifests: PresetManifest[] = closurePresets.map((p) => p.manifest);
+
+      // PREFLIGHT: collision check (across the full closure)
       if (!options.force) {
         const collisions: string[] = [];
-        for (const presetRef of toEject) {
+        for (const { dir } of closurePresets) {
           for (const subdir of ["skills", "agents", "hooks"]) {
-            const srcDir = join(presetRef, subdir);
+            const srcDir = join(dir, subdir);
             if (!(await fileExists(srcDir))) continue;
             const srcFiles = await collectFilePaths(srcDir);
             for (const srcFile of srcFiles) {
@@ -159,23 +184,9 @@ export function ejectCommand(): Command {
         }
       }
 
-      // EXECUTE — file copy
-      const presetManifests: PresetManifest[] = [];
-      for (const presetRef of toEject) {
-        const content = await readTextFile(join(presetRef, "preset.yaml"));
-        const pm = parsePresetManifest(content, join(presetRef, "preset.yaml"));
-        presetManifests.push(pm);
-        logger.info(`Ejecting ${pm.name}@${pm.version}...`);
-        for (const subdir of ["skills", "agents", "hooks"]) {
-          const srcDir = join(presetRef, subdir);
-          if (await fileExists(srcDir)) {
-            await copyDir(srcDir, join(root, subdir));
-            logger.success(`  Copied ${subdir}/`);
-          }
-        }
-      }
-
-      // EXECUTE — manifest merge via Document API (preserves comments + key order)
+      // PREFLIGHT: dry-run the manifest merge via Document API (preserves
+      // comments + key order) and validate the serialized result parses back.
+      // Nothing is written yet — this only computes the final prsm.yaml string.
       const manifestContent = await readTextFile(join(root, "prsm.yaml"));
       const doc = parseYamlDocument(manifestContent);
 
@@ -200,9 +211,27 @@ export function ejectCommand(): Command {
       if (reparsed.errors.length > 0) {
         const errs = reparsed.errors.map((e) => `  ${e.message}`).join("\n");
         logger.error(
-          `Eject produced unparseable prsm.yaml:\n${errs}\nAborting — no changes made to prsm.yaml.`,
+          `Eject would produce unparseable prsm.yaml:\n${errs}\nAborting — no changes made.`,
         );
         process.exit(1);
+      }
+
+      // ── EXECUTE ────────────────────────────────────────────────────────
+      // Pure file writes from here on. No operation in this block can fail on
+      // bad input — all validation already passed in preflight.
+
+      // Copy every preset in the closure, dependency-first — so a
+      // higher-precedence preset's files overwrite inherited ones on collision,
+      // matching the build-time merge order.
+      for (const { dir, manifest: pm } of closurePresets) {
+        logger.info(`Ejecting ${pm.name}@${pm.version}...`);
+        for (const subdir of ["skills", "agents", "hooks"]) {
+          const srcDir = join(dir, subdir);
+          if (await fileExists(srcDir)) {
+            await copyDir(srcDir, join(root, subdir));
+            logger.success(`  Copied ${subdir}/`);
+          }
+        }
       }
 
       await writeTextFile(join(root, "prsm.yaml"), serialized);

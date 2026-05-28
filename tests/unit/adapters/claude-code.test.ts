@@ -80,4 +80,31 @@ describe("ClaudeCodeAdapter", () => {
     expect(settings.hooks.PreToolUse).toBeDefined();
     expect(settings.permissions.allow).toContain("Bash(git *)");
   });
+
+  it("emits hooks in Claude's documented matcher-nested schema (#10)", async () => {
+    // Claude Code silently ignores a flat `[{ command }]` hook shape — handlers
+    // must be nested under a matcher group: `[{ matcher, hooks: [{ type, command }] }]`.
+    // Without this, every prsm-generated hook (including PreToolUse safety hooks)
+    // never fires. See https://code.claude.com/docs/en/hooks#how-a-hook-resolves
+    const model: WorkspaceModel = {
+      name: "test",
+      version: "1.0.0",
+      runtimes: ["claude-code"],
+      skills: [],
+      agents: [],
+      hooks: { stop: "./hooks/stop.sh", "pre-tool-use": "./hooks/safety.sh" },
+      permissions: [],
+      repos: {},
+      output: {},
+    };
+    await adapter.generateConfig(model, tmp);
+    const settings = JSON.parse(await readTextFile(join(tmp, ".claude/settings.json")));
+
+    expect(settings.hooks.Stop).toEqual([
+      { matcher: "", hooks: [{ type: "command", command: "./hooks/stop.sh" }] },
+    ]);
+    expect(settings.hooks.PreToolUse).toEqual([
+      { matcher: "", hooks: [{ type: "command", command: "./hooks/safety.sh" }] },
+    ]);
+  });
 });

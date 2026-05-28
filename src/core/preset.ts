@@ -1,4 +1,4 @@
-import { join, relative, sep } from "path";
+import { join, relative, resolve, sep } from "path";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseYaml } from "../utils/yaml";
 import { sha256Hex } from "../utils/checksum";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
 import { parseSkillFile, skillToResolved } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
+import { mergeLayers } from "../compiler/merger";
 import { readdir } from "fs/promises";
 
 const HASH_SKIP_FILENAMES = new Set([".DS_Store", "Thumbs.db"]);
@@ -88,15 +89,78 @@ export function parsePresetManifest(content: string, sourcePath: string): Preset
   return result.data as PresetManifest;
 }
 
-export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
+/** A preset in a resolved closure: its directory (as referenced) and manifest. */
+export interface ResolvedPreset {
+  dir: string;
+  manifest: PresetManifest;
+}
+
+/**
+ * Resolve a preset's full transitive closure in dependency-first layer order
+ * (extended presets before the presets that extend them, the root preset last).
+ * Deduplicates shared dependencies (diamonds) by canonical path, keeping the
+ * first — lowest-precedence — occurrence. Rejects true `extends:` cycles.
+ *
+ * This is the single source of truth for "which presets does this entail",
+ * shared by install (lock every preset), build (verify every preset), eject
+ * (materialize every preset), and loadPresetAsLayer (merge every preset). Each
+ * `extends` ref is resolved relative to the preset that declares it, so
+ * `../base` means "sibling of the current preset".
+ */
+export async function resolvePresetClosure(presetDir: string): Promise<ResolvedPreset[]> {
+  const out: ResolvedPreset[] = [];
+  const added = new Set<string>(); // canonical dirs already in `out` (dedup)
+  await walkPresetClosure(presetDir, new Set(), out, added);
+  return out;
+}
+
+async function walkPresetClosure(
+  presetDir: string,
+  branch: Set<string>, // canonical dirs along the current branch (cycle detection)
+  out: ResolvedPreset[],
+  added: Set<string>,
+): Promise<void> {
+  const canonical = resolve(presetDir);
+  if (branch.has(canonical)) {
+    throw new Error(
+      `Preset extends: cycle detected at "${canonical}". ` +
+        `Chain: ${[...branch, canonical].join(" -> ")}`,
+    );
+  }
+
   const presetYamlPath = join(presetDir, "preset.yaml");
   if (!(await fileExists(presetYamlPath))) {
     throw new Error(`preset.yaml not found in ${presetDir}`);
   }
+  const manifest = parsePresetManifest(await readTextFile(presetYamlPath), presetYamlPath);
 
-  const content = await readTextFile(presetYamlPath);
-  const manifest = parsePresetManifest(content, presetYamlPath);
+  // Dependencies first (lower precedence), each resolved relative to this dir.
+  const nextBranch = new Set(branch);
+  nextBranch.add(canonical);
+  for (const ref of manifest.extends ?? []) {
+    await walkPresetClosure(resolve(presetDir, ref), nextBranch, out, added);
+  }
 
+  if (!added.has(canonical)) {
+    added.add(canonical);
+    out.push({ dir: presetDir, manifest });
+  }
+}
+
+export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
+  const closure = await resolvePresetClosure(presetDir);
+  const layers: WorkspaceModel[] = [];
+  for (const p of closure) {
+    layers.push(await loadOwnPresetLayer(p.dir, p.manifest));
+  }
+  return layers.length === 1 ? layers[0] : mergeLayers(layers);
+}
+
+/** Load a single preset's own files (no extends resolution). */
+async function loadOwnPresetLayer(
+  presetDir: string,
+  manifest: PresetManifest,
+): Promise<WorkspaceModel> {
   const skills = [];
   const skillsDir = join(presetDir, "skills");
   if (await fileExists(skillsDir)) {
