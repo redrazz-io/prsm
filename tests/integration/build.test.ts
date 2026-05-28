@@ -261,6 +261,32 @@ extends:
     expect(await fileExists(join(tmp, ".claude/skills/hub-security-preset-skill/SKILL.md"))).toBe(true);
   });
 
+  it("emits manifest.permissions into .claude/settings.json (C2 regression)", async () => {
+    // Regression for Codex adversarial review finding: loadWorkspace was
+    // discarding manifest.permissions, so locally declared permissions never
+    // reached the build output even after eject wrote them into prsm.yaml.
+    const manifestWithPerms = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+permissions:
+  - Bash(git:*)
+  - Read(./docs/**)
+output:
+  claude-code:
+    settings: .claude/settings.json
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPerms);
+
+    await compile(tmp);
+
+    const { readTextFile } = await import("../../src/utils/fs");
+    const settings = JSON.parse(await readTextFile(join(tmp, ".claude/settings.json")));
+    expect(settings.permissions.allow).toContain("Bash(git:*)");
+    expect(settings.permissions.allow).toContain("Read(./docs/**)");
+  });
+
   it("pre-existing Codex skills are not deleted on prsm build", async () => {
     const manifestCodexOnly = `
 name: test-ws

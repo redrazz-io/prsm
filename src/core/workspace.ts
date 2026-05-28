@@ -75,7 +75,7 @@ export async function loadWorkspace(root: string): Promise<WorkspaceModel & { ma
     skills,
     agents,
     hooks: manifest.hooks,
-    permissions: [],
+    permissions: manifest.permissions,
     repos: manifest.repos,
     output: manifest.output,
   };
