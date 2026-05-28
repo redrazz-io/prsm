@@ -9,7 +9,7 @@ import {
   type Document,
 } from "../utils/yaml";
 import { logger } from "../utils/logger";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import { copyFile, readdir } from "fs/promises";
 import type { PresetManifest } from "../types";
 
@@ -149,7 +149,8 @@ export function ejectCommand(): Command {
       try {
         const flattened: ResolvedPreset[] = [];
         for (const presetRef of toEject) {
-          flattened.push(...(await resolvePresetClosure(presetRef)));
+          // Resolve relative extends against the workspace root, not CWD (#6).
+          flattened.push(...(await resolvePresetClosure(resolve(root, presetRef))));
         }
         closurePresets = flattened;
       } catch (err) {

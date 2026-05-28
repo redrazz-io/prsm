@@ -239,6 +239,31 @@ extends:
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
 
+  it("resolves a relative extends: path against the workspace root, not CWD (#6)", async () => {
+    // The test process CWD is the repo root, not `tmp`. A relative `extends:`
+    // entry must resolve against the workspace root (tmp) that install/compile
+    // are handed — not against process.cwd().
+    const presetDir = join(tmp, "presets/test-preset");
+    await ensureDir(join(presetDir, "skills/security/preset-skill"));
+    await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
+    await writeTextFile(join(presetDir, "skills/security/preset-skill/SKILL.md"), PRESET_SKILL_MD);
+
+    const manifestRelative = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ./presets/test-preset
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestRelative);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+    await expect(compile(tmp)).resolves.toBeUndefined();
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-preset-skill/SKILL.md"))).toBe(true);
+  });
+
   it("throws when extends declared but prsm.lock missing", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await ensureDir(presetDir);

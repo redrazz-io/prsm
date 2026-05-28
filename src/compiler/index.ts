@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, resolve } from "path";
 import { loadWorkspace } from "../core/workspace";
 import { mergeLayers } from "./merger";
 import { getAdapter } from "../adapters/index";
@@ -31,10 +31,13 @@ export async function compile(workspaceRoot: string): Promise<void> {
     }
 
     for (const presetRef of manifest.extends) {
+      // Resolve relative extends against the workspace root, not process.cwd(),
+      // so build works from any subdirectory (#6). Absolute paths pass through.
+      const presetDir = resolve(workspaceRoot, presetRef);
       // Verify the FULL transitive closure against the lockfile, not just the
       // direct preset — a mutated `../base` referenced by a direct preset must
       // be caught even though it lives outside the direct preset's tree (Codex #1).
-      for (const { dir, manifest: pm } of await resolvePresetClosure(presetRef)) {
+      for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir)) {
         const actualChecksum = `sha256:${await computePresetContentHash(dir)}`;
         const lockEntry = lock.presets[pm.name];
         if (!lockEntry) {
@@ -49,7 +52,7 @@ export async function compile(workspaceRoot: string): Promise<void> {
         }
       }
 
-      layers.push(await loadPresetAsLayer(presetRef));
+      layers.push(await loadPresetAsLayer(presetDir));
     }
   }
 
