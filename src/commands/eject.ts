@@ -9,7 +9,7 @@ import {
   type Document,
 } from "../utils/yaml";
 import { logger } from "../utils/logger";
-import { join, dirname, resolve } from "path";
+import { join, dirname } from "path";
 import { copyFile, readdir } from "fs/promises";
 import type { PresetManifest } from "../types";
 
@@ -135,20 +135,21 @@ export function ejectCommand(): Command {
       // every manifest, and rejects cycles — so this single call replaces the
       // dir-exists + parse-each-manifest preflights. Crucially it also pulls in
       // transitively-extended presets, so eject leaves a self-contained
-      // workspace instead of dropping inherited content (Codex #2). Order is
-      // dependency-first (lowest precedence first); deduped across direct presets.
+      // workspace instead of dropping inherited content (Codex #2).
+      //
+      // Concatenate each DIRECT preset's closure in declaration order WITHOUT
+      // deduping across direct presets — build treats each direct `extends`
+      // entry as its own layer in order (later wins), and
+      // mergeLayers([merge(base,team), base]) equals the flat replay
+      // [base, team, base]. A global dedupe that kept the first occurrence would
+      // let the transitive copy win over a later direct one, diverging from
+      // build output (Codex #3). Redundant copies of a shared base are
+      // idempotent (same bytes) and land in the precedence-correct order.
       let closurePresets: ResolvedPreset[];
       try {
         const flattened: ResolvedPreset[] = [];
-        const seen = new Set<string>();
         for (const presetRef of toEject) {
-          for (const p of await resolvePresetClosure(presetRef)) {
-            const canonical = resolve(p.dir);
-            if (!seen.has(canonical)) {
-              seen.add(canonical);
-              flattened.push(p);
-            }
-          }
+          flattened.push(...(await resolvePresetClosure(presetRef)));
         }
         closurePresets = flattened;
       } catch (err) {

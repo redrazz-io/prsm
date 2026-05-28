@@ -365,6 +365,45 @@ extends:
     expect(after.extends).toEqual([]);
   });
 
+  it("preserves direct-preset precedence: a later direct preset wins over the same preset reached transitively (Codex #3)", async () => {
+    // extends: [team, base] where team extends base. Both define skills/security/shared/SKILL.md.
+    // build processes each direct extends entry as its own layer in declaration order, so the
+    // DIRECT base (last) wins the collision. eject must reproduce that — not let team win because
+    // base was first seen as team's transitive dependency.
+    const baseDir = join(tmp, "presets/base");
+    const teamDir = join(tmp, "presets/team");
+    await ensureDir(join(baseDir, "skills/security/shared"));
+    await writeTextFile(join(baseDir, "preset.yaml"), "name: base\nversion: 1.0.0\n");
+    await writeTextFile(
+      join(baseDir, "skills/security/shared/SKILL.md"),
+      `---\nname: shared\ndescription: shared skill\ncategory: security\n---\n# shared\nBASE_VERSION\n`,
+    );
+    await ensureDir(join(teamDir, "skills/security/shared"));
+    await writeTextFile(join(teamDir, "preset.yaml"), `name: team\nversion: 1.0.0\nextends:\n  - ${baseDir}\n`);
+    await writeTextFile(
+      join(teamDir, "skills/security/shared/SKILL.md"),
+      `---\nname: shared\ndescription: shared skill\ncategory: security\n---\n# shared\nTEAM_VERSION\n`,
+    );
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${teamDir}
+  - ${baseDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    if (code !== 0) console.error(stderr);
+
+    // Direct base is the last extends entry → its version wins, matching build.
+    const shared = await readTextFile(join(tmp, "skills/security/shared/SKILL.md"));
+    expect(shared).toContain("BASE_VERSION");
+    expect(shared).not.toContain("TEAM_VERSION");
+  });
+
   it("removes ejected presets from extends list", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await setupPreset(presetDir, {});
