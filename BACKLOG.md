@@ -111,20 +111,24 @@ These are features that would be valuable but are out of scope for MVP.
 
 ---
 
-## Pre-Block-1 Adversarial Findings (deferred)
+## Pre-Block-1 Adversarial Findings
 
 Surfaced by Codex bot reviews on PR #1 during the Block 1 closeout (2026-05-27 / -28).
 These are real bugs that pre-date Block 1 — flagged here for follow-up work, not blocking v1.0 ship.
 
-### P1 — Per-item `frontmatter.runtimes` filter ignored in compile loop
-- **Where:** `src/compiler/index.ts:74`
-- **Bug:** The build loop emits every resolved skill and agent to every workspace runtime, ignoring each item's `frontmatter.runtimes`. A skill declared for Claude only is still emitted to Codex when the workspace runs both runtimes.
-- **Fix shape:** Filter `model.skills` / `model.agents` per runtime inside the for-runtime loop, using each item's `frontmatter.runtimes` (default to all runtimes if absent).
+The two P1s below shipped fixed in the Block 1.5 hotfix PR (2026-05-28), alongside
+issue #7 (eject non-transactional) and #10 (Claude hooks matcher schema). The two
+P2s remain deferred (tracked as issues #5 and #6).
 
-### P1 — `loadPresetAsLayer` does not resolve transitive preset `extends:`
-- **Where:** `src/core/preset.ts:80` (`loadPresetAsLayer`)
-- **Bug:** `preset.yaml` supports an `extends:` array, but `loadPresetAsLayer` only reads files from the current preset directory — it never recursively loads the chain. A preset that extends another preset silently inherits nothing.
-- **Fix shape:** Recursively resolve `manifest.extends` inside `loadPresetAsLayer` and merge layers in order. Add cycle detection.
+### ✅ P1 — Per-item `frontmatter.runtimes` filter ignored in compile loop (FIXED — #3)
+- **Where:** `src/compiler/index.ts`
+- **Bug:** The build loop emitted every resolved skill and agent to every workspace runtime, ignoring each item's `frontmatter.runtimes`. A skill declared for Claude only was still emitted to Codex when the workspace runs both runtimes.
+- **Resolution:** `targetsRuntime` filter applied to `model.skills` / `model.agents` inside the for-runtime loop; absent/empty list = all runtimes. Block 1.5, 2026-05-28.
+
+### ✅ P1 — `loadPresetAsLayer` does not resolve transitive preset `extends:` (FIXED — #4)
+- **Where:** `src/core/preset.ts` (`loadPresetAsLayer`)
+- **Bug:** `preset.yaml` supports an `extends:` array, but `loadPresetAsLayer` only read files from the current preset directory — it never recursively loaded the chain. A preset that extended another preset silently inherited nothing.
+- **Resolution:** Recursive `loadPresetAsLayerInner` resolves `manifest.extends` (relative to each preset dir), merges via `mergeLayers` (extending preset wins), with branch-scoped cycle detection. Block 1.5, 2026-05-28.
 
 ### P2 — Stale prsm-managed hooks survive `settings.json` regeneration
 - **Where:** `src/adapters/claude-code.ts:67` (`generateConfig`)
