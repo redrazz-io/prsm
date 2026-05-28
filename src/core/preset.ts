@@ -1,4 +1,4 @@
-import { join, relative, sep } from "path";
+import { join, relative, resolve, sep } from "path";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseYaml } from "../utils/yaml";
 import { sha256Hex } from "../utils/checksum";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
 import { parseSkillFile, skillToResolved } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
+import { mergeLayers } from "../compiler/merger";
 import { readdir } from "fs/promises";
 
 const HASH_SKIP_FILENAMES = new Set([".DS_Store", "Thumbs.db"]);
@@ -89,6 +90,29 @@ export function parsePresetManifest(content: string, sourcePath: string): Preset
 }
 
 export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
+  return loadPresetAsLayerInner(presetDir, new Set());
+}
+
+/**
+ * Recursively resolve a preset and its `extends:` chain into a single merged
+ * layer. Extended presets are lower-precedence layers; the preset itself wins
+ * on conflict (matches mergeLayers last-wins). `visited` carries the canonical
+ * paths along the current branch for cycle detection — each branch gets its own
+ * copy, so diamond dependencies are allowed but true cycles are rejected.
+ */
+async function loadPresetAsLayerInner(
+  presetDir: string,
+  visited: Set<string>,
+): Promise<WorkspaceModel> {
+  const canonical = resolve(presetDir);
+  if (visited.has(canonical)) {
+    throw new Error(
+      `Preset extends: cycle detected at "${canonical}". ` +
+        `Chain: ${[...visited, canonical].join(" -> ")}`,
+    );
+  }
+  visited.add(canonical);
+
   const presetYamlPath = join(presetDir, "preset.yaml");
   if (!(await fileExists(presetYamlPath))) {
     throw new Error(`preset.yaml not found in ${presetDir}`);
@@ -97,6 +121,25 @@ export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceMod
   const content = await readTextFile(presetYamlPath);
   const manifest = parsePresetManifest(content, presetYamlPath);
 
+  // Lower-precedence layers first: resolve each extends ref relative to THIS
+  // preset's directory so `../base` means "sibling of the current preset".
+  const extendsLayers: WorkspaceModel[] = [];
+  for (const ref of manifest.extends ?? []) {
+    const childDir = resolve(presetDir, ref);
+    extendsLayers.push(await loadPresetAsLayerInner(childDir, new Set(visited)));
+  }
+
+  const ownLayer = await loadOwnPresetLayer(presetDir, manifest);
+
+  if (extendsLayers.length === 0) return ownLayer;
+  return mergeLayers([...extendsLayers, ownLayer]);
+}
+
+/** Load a single preset's own files (no extends resolution). */
+async function loadOwnPresetLayer(
+  presetDir: string,
+  manifest: PresetManifest,
+): Promise<WorkspaceModel> {
   const skills = [];
   const skillsDir = join(presetDir, "skills");
   if (await fileExists(skillsDir)) {

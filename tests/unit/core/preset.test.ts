@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir, symlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { computePresetContentHash } from "../../../src/core/preset";
+import { computePresetContentHash, loadPresetAsLayer } from "../../../src/core/preset";
 
 let tmp: string;
 beforeEach(async () => {
@@ -121,5 +121,52 @@ describe("computePresetContentHash", () => {
     } finally {
       await rm(targetDir, { recursive: true });
     }
+  });
+});
+
+const SKILL = (name: string) =>
+  `---\nname: ${name}\ndescription: ${name} skill\ncategory: cat\n---\n# ${name}\nbody\n`;
+
+describe("loadPresetAsLayer transitive extends", () => {
+  it("recursively loads transitive extends: chain (#4)", async () => {
+    await writeFileAt("presets/base/preset.yaml", "name: base\nversion: 1.0.0\n");
+    await writeFileAt("presets/base/skills/cat/from-base/SKILL.md", SKILL("from-base"));
+    await writeFileAt(
+      "presets/team/preset.yaml",
+      "name: team\nversion: 1.0.0\nextends:\n  - ../base\n",
+    );
+    await writeFileAt("presets/team/skills/cat/from-team/SKILL.md", SKILL("from-team"));
+
+    const layer = await loadPresetAsLayer(join(tmp, "presets/team"));
+    const names = layer.skills.map((s) => s.name).sort();
+    expect(names).toEqual(["from-base", "from-team"]);
+  });
+
+  it("local preset wins on name conflict with extended preset (#4 precedence)", async () => {
+    // Both presets define a skill named "shared"; the extending preset's copy
+    // must win, matching mergeLayers last-wins semantics.
+    await writeFileAt("presets/base/preset.yaml", "name: base\nversion: 1.0.0\n");
+    await writeFileAt(
+      "presets/base/skills/cat/shared/SKILL.md",
+      `---\nname: shared\ndescription: from base\ncategory: cat\n---\n# shared\nbase\n`,
+    );
+    await writeFileAt(
+      "presets/team/preset.yaml",
+      "name: team\nversion: 1.0.0\nextends:\n  - ../base\n",
+    );
+    await writeFileAt(
+      "presets/team/skills/cat/shared/SKILL.md",
+      `---\nname: shared\ndescription: from team\ncategory: cat\n---\n# shared\nteam\n`,
+    );
+
+    const layer = await loadPresetAsLayer(join(tmp, "presets/team"));
+    const shared = layer.skills.find((s) => s.name === "shared");
+    expect(shared?.content).toContain("team");
+  });
+
+  it("detects cycles in extends: chain (#4)", async () => {
+    await writeFileAt("presets/a/preset.yaml", "name: a\nversion: 1.0.0\nextends:\n  - ../b\n");
+    await writeFileAt("presets/b/preset.yaml", "name: b\nversion: 1.0.0\nextends:\n  - ../a\n");
+    await expect(loadPresetAsLayer(join(tmp, "presets/a"))).rejects.toThrow(/cycle/i);
   });
 });
