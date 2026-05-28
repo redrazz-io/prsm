@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir, symlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { computePresetContentHash, loadPresetAsLayer } from "../../../src/core/preset";
+import { computePresetContentHash, loadPresetAsLayer, resolvePresetClosure } from "../../../src/core/preset";
 
 let tmp: string;
 beforeEach(async () => {
@@ -168,5 +168,36 @@ describe("loadPresetAsLayer transitive extends", () => {
     await writeFileAt("presets/a/preset.yaml", "name: a\nversion: 1.0.0\nextends:\n  - ../b\n");
     await writeFileAt("presets/b/preset.yaml", "name: b\nversion: 1.0.0\nextends:\n  - ../a\n");
     await expect(loadPresetAsLayer(join(tmp, "presets/a"))).rejects.toThrow(/cycle/i);
+  });
+});
+
+describe("resolvePresetClosure", () => {
+  it("returns dependency-first order with the root preset last", async () => {
+    await writeFileAt("presets/base/preset.yaml", "name: base\nversion: 1.0.0\n");
+    await writeFileAt("presets/team/preset.yaml", "name: team\nversion: 1.0.0\nextends:\n  - ../base\n");
+
+    const closure = await resolvePresetClosure(join(tmp, "presets/team"));
+    expect(closure.map((p) => p.manifest.name)).toEqual(["base", "team"]);
+  });
+
+  it("dedups a diamond by canonical path, keeping the first (lowest-precedence) occurrence", async () => {
+    // top extends [left, right]; both left and right extend base.
+    await writeFileAt("presets/base/preset.yaml", "name: base\nversion: 1.0.0\n");
+    await writeFileAt("presets/left/preset.yaml", "name: left\nversion: 1.0.0\nextends:\n  - ../base\n");
+    await writeFileAt("presets/right/preset.yaml", "name: right\nversion: 1.0.0\nextends:\n  - ../base\n");
+    await writeFileAt(
+      "presets/top/preset.yaml",
+      "name: top\nversion: 1.0.0\nextends:\n  - ../left\n  - ../right\n",
+    );
+
+    const closure = await resolvePresetClosure(join(tmp, "presets/top"));
+    // base appears once, before both left and right; top is last.
+    expect(closure.map((p) => p.manifest.name)).toEqual(["base", "left", "right", "top"]);
+  });
+
+  it("rejects cycles (#4)", async () => {
+    await writeFileAt("presets/a/preset.yaml", "name: a\nversion: 1.0.0\nextends:\n  - ../b\n");
+    await writeFileAt("presets/b/preset.yaml", "name: b\nversion: 1.0.0\nextends:\n  - ../a\n");
+    await expect(resolvePresetClosure(join(tmp, "presets/a"))).rejects.toThrow(/cycle/i);
   });
 });

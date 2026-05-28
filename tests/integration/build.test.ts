@@ -172,6 +172,43 @@ extends:
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
 
+  it("compile fails when a TRANSITIVE (extended) preset is mutated after install (Codex #1)", async () => {
+    // base <- team(extends base) <- workspace(extends team). Mutating base
+    // after install must be caught: install locks the full closure and compile
+    // verifies every transitive preset, not just the workspace's direct extends.
+    const baseDir = join(tmp, "presets/base");
+    const teamDir = join(tmp, "presets/team");
+    await ensureDir(join(baseDir, "skills/security/from-base"));
+    await writeTextFile(join(baseDir, "preset.yaml"), "name: base\nversion: 1.0.0\n");
+    await writeTextFile(
+      join(baseDir, "skills/security/from-base/SKILL.md"),
+      `---\nname: from-base\ndescription: base skill\ncategory: security\n---\n# from-base\n`,
+    );
+    await ensureDir(teamDir);
+    await writeTextFile(join(teamDir, "preset.yaml"), `name: team\nversion: 1.0.0\nextends:\n  - ${baseDir}\n`);
+
+    const manifestWithPreset = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ${teamDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestWithPreset);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+
+    // Tamper with the TRANSITIVE base preset (not the direct one)
+    await writeTextFile(
+      join(baseDir, "skills/security/from-base/SKILL.md"),
+      `---\nname: from-base\ndescription: base skill\ncategory: security\n---\n# from-base\nTAMPERED\n`,
+    );
+
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
+  });
+
   it("compile fails when an AGENT.md inside an installed preset is mutated", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await ensureDir(join(presetDir, "agents/my-agent"));

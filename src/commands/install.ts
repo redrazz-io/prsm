@@ -1,8 +1,7 @@
 import { Command } from "commander";
 import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { parsePresetManifest, computePresetContentHash } from "../core/preset";
+import { computePresetContentHash, resolvePresetClosure } from "../core/preset";
 import { writeLockFile, createLockFile } from "../core/lockfile";
-import { readTextFile, fileExists } from "../utils/fs";
 import { logger } from "../utils/logger";
 import { join } from "path";
 
@@ -11,16 +10,15 @@ export async function runInstall(root: string): Promise<void> {
   const manifest = ws.manifest;
   const presetEntries: Record<string, { version: string; url: string; checksum: string }> = {};
 
+  // Lock the full transitive closure of every direct extends, not just the
+  // direct presets — otherwise a mutated transitive preset slips past the
+  // checksum gate at build time (Codex #1).
   for (const presetRef of manifest.extends) {
-    const presetYamlPath = join(presetRef, "preset.yaml");
-    if (!(await fileExists(presetYamlPath))) {
-      throw new Error(`Cannot resolve preset "${presetRef}": preset.yaml not found at ${presetYamlPath}`);
+    for (const { dir, manifest: pm } of await resolvePresetClosure(presetRef)) {
+      const checksum = `sha256:${await computePresetContentHash(dir)}`;
+      presetEntries[pm.name] = { version: pm.version, url: dir, checksum };
+      logger.success(`Resolved ${pm.name}@${pm.version}`);
     }
-    const content = await readTextFile(presetYamlPath);
-    const presetManifest = parsePresetManifest(content, presetYamlPath);
-    const checksum = `sha256:${await computePresetContentHash(presetRef)}`;
-    presetEntries[presetManifest.name] = { version: presetManifest.version, url: presetRef, checksum };
-    logger.success(`Resolved ${presetManifest.name}@${presetManifest.version}`);
   }
 
   const lock = createLockFile(presetEntries);

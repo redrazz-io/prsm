@@ -3,8 +3,7 @@ import { loadWorkspace } from "../core/workspace";
 import { mergeLayers } from "./merger";
 import { getAdapter } from "../adapters/index";
 import { readLockFile } from "../core/lockfile";
-import { loadPresetAsLayer, parsePresetManifest, computePresetContentHash } from "../core/preset";
-import { readTextFile } from "../utils/fs";
+import { loadPresetAsLayer, computePresetContentHash, resolvePresetClosure } from "../core/preset";
 import { logger } from "../utils/logger";
 import type { WorkspaceModel, Runtime } from "../types";
 
@@ -32,21 +31,22 @@ export async function compile(workspaceRoot: string): Promise<void> {
     }
 
     for (const presetRef of manifest.extends) {
-      const presetYamlPath = join(presetRef, "preset.yaml");
-      const content = await readTextFile(presetYamlPath);
-      const actualChecksum = `sha256:${await computePresetContentHash(presetRef)}`;
-      const presetManifest = parsePresetManifest(content, presetYamlPath);
-
-      const lockEntry = lock.presets[presetManifest.name];
-      if (!lockEntry) {
-        throw new Error(
-          `Preset "${presetManifest.name}" is not in prsm.lock. Run prsm install to update the lockfile.`,
-        );
-      }
-      if (lockEntry.checksum !== actualChecksum) {
-        throw new Error(
-          `Preset "${presetManifest.name}" checksum mismatch — preset contents changed since last prsm install. Run prsm install to update prsm.lock.`,
-        );
+      // Verify the FULL transitive closure against the lockfile, not just the
+      // direct preset — a mutated `../base` referenced by a direct preset must
+      // be caught even though it lives outside the direct preset's tree (Codex #1).
+      for (const { dir, manifest: pm } of await resolvePresetClosure(presetRef)) {
+        const actualChecksum = `sha256:${await computePresetContentHash(dir)}`;
+        const lockEntry = lock.presets[pm.name];
+        if (!lockEntry) {
+          throw new Error(
+            `Preset "${pm.name}" is not in prsm.lock. Run prsm install to update the lockfile.`,
+          );
+        }
+        if (lockEntry.checksum !== actualChecksum) {
+          throw new Error(
+            `Preset "${pm.name}" checksum mismatch — preset contents changed since last prsm install. Run prsm install to update prsm.lock.`,
+          );
+        }
       }
 
       layers.push(await loadPresetAsLayer(presetRef));

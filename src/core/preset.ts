@@ -89,50 +89,71 @@ export function parsePresetManifest(content: string, sourcePath: string): Preset
   return result.data as PresetManifest;
 }
 
-export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
-  return loadPresetAsLayerInner(presetDir, new Set());
+/** A preset in a resolved closure: its directory (as referenced) and manifest. */
+export interface ResolvedPreset {
+  dir: string;
+  manifest: PresetManifest;
 }
 
 /**
- * Recursively resolve a preset and its `extends:` chain into a single merged
- * layer. Extended presets are lower-precedence layers; the preset itself wins
- * on conflict (matches mergeLayers last-wins). `visited` carries the canonical
- * paths along the current branch for cycle detection — each branch gets its own
- * copy, so diamond dependencies are allowed but true cycles are rejected.
+ * Resolve a preset's full transitive closure in dependency-first layer order
+ * (extended presets before the presets that extend them, the root preset last).
+ * Deduplicates shared dependencies (diamonds) by canonical path, keeping the
+ * first — lowest-precedence — occurrence. Rejects true `extends:` cycles.
+ *
+ * This is the single source of truth for "which presets does this entail",
+ * shared by install (lock every preset), build (verify every preset), eject
+ * (materialize every preset), and loadPresetAsLayer (merge every preset). Each
+ * `extends` ref is resolved relative to the preset that declares it, so
+ * `../base` means "sibling of the current preset".
  */
-async function loadPresetAsLayerInner(
+export async function resolvePresetClosure(presetDir: string): Promise<ResolvedPreset[]> {
+  const out: ResolvedPreset[] = [];
+  const added = new Set<string>(); // canonical dirs already in `out` (dedup)
+  await walkPresetClosure(presetDir, new Set(), out, added);
+  return out;
+}
+
+async function walkPresetClosure(
   presetDir: string,
-  visited: Set<string>,
-): Promise<WorkspaceModel> {
+  branch: Set<string>, // canonical dirs along the current branch (cycle detection)
+  out: ResolvedPreset[],
+  added: Set<string>,
+): Promise<void> {
   const canonical = resolve(presetDir);
-  if (visited.has(canonical)) {
+  if (branch.has(canonical)) {
     throw new Error(
       `Preset extends: cycle detected at "${canonical}". ` +
-        `Chain: ${[...visited, canonical].join(" -> ")}`,
+        `Chain: ${[...branch, canonical].join(" -> ")}`,
     );
   }
-  visited.add(canonical);
 
   const presetYamlPath = join(presetDir, "preset.yaml");
   if (!(await fileExists(presetYamlPath))) {
     throw new Error(`preset.yaml not found in ${presetDir}`);
   }
+  const manifest = parsePresetManifest(await readTextFile(presetYamlPath), presetYamlPath);
 
-  const content = await readTextFile(presetYamlPath);
-  const manifest = parsePresetManifest(content, presetYamlPath);
-
-  // Lower-precedence layers first: resolve each extends ref relative to THIS
-  // preset's directory so `../base` means "sibling of the current preset".
-  const extendsLayers: WorkspaceModel[] = [];
+  // Dependencies first (lower precedence), each resolved relative to this dir.
+  const nextBranch = new Set(branch);
+  nextBranch.add(canonical);
   for (const ref of manifest.extends ?? []) {
-    const childDir = resolve(presetDir, ref);
-    extendsLayers.push(await loadPresetAsLayerInner(childDir, new Set(visited)));
+    await walkPresetClosure(resolve(presetDir, ref), nextBranch, out, added);
   }
 
-  const ownLayer = await loadOwnPresetLayer(presetDir, manifest);
+  if (!added.has(canonical)) {
+    added.add(canonical);
+    out.push({ dir: presetDir, manifest });
+  }
+}
 
-  if (extendsLayers.length === 0) return ownLayer;
-  return mergeLayers([...extendsLayers, ownLayer]);
+export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
+  const closure = await resolvePresetClosure(presetDir);
+  const layers: WorkspaceModel[] = [];
+  for (const p of closure) {
+    layers.push(await loadOwnPresetLayer(p.dir, p.manifest));
+  }
+  return layers.length === 1 ? layers[0] : mergeLayers(layers);
 }
 
 /** Load a single preset's own files (no extends resolution). */
