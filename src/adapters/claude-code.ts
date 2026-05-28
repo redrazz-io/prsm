@@ -42,12 +42,24 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
   async generateConfig(model: WorkspaceModel, outputBase: string): Promise<void> {
     const settingsPath = join(outputBase, ".claude/settings.json");
 
-    const prsmHooks: Record<string, Array<{ command: string }>> = {};
+    // Claude Code resolves hooks by matcher group: each event maps to an array
+    // of { matcher, hooks: [{ type, command }] } entries. A flat
+    // [{ command }] shape is silently ignored — the hook never fires. An empty
+    // matcher ("") means "match every invocation", the correct default for
+    // events that don't filter by tool (Stop, SessionStart, etc.).
+    // See https://code.claude.com/docs/en/hooks#how-a-hook-resolves
+    type HookMatcherGroup = {
+      matcher: string;
+      hooks: Array<{ type: "command"; command: string }>;
+    };
+    const prsmHooks: Record<string, HookMatcherGroup[]> = {};
     for (const [hookKey, scriptPath] of Object.entries(model.hooks)) {
       if (!scriptPath) continue;
       const eventName = HOOK_EVENT_MAP[hookKey];
       if (!eventName) continue;
-      prsmHooks[eventName] = [{ command: scriptPath }];
+      prsmHooks[eventName] = [
+        { matcher: "", hooks: [{ type: "command", command: scriptPath }] },
+      ];
     }
 
     // Read existing settings.json and merge — preserve non-prsm keys
