@@ -302,6 +302,69 @@ extends:
     expect(await readTextFile(join(tmp, "prsm.yaml"))).toBe(before);
   });
 
+  it("materializes the full transitive closure — inherited content survives (Codex #2)", async () => {
+    // workspace extends team; team extends base. After eject the workspace must
+    // be self-contained: base's skills, hooks, permissions, and dependencies
+    // (inherited transitively) must all land locally, not just team's own.
+    const baseDir = join(tmp, "presets/base");
+    const teamDir = join(tmp, "presets/team");
+    await ensureDir(join(baseDir, "skills/security/from-base"));
+    await writeTextFile(
+      join(baseDir, "preset.yaml"),
+      [
+        "name: base",
+        "version: 1.0.0",
+        "hooks:",
+        "  session-start: ./hooks/base.sh",
+        "permissions:",
+        "  - Bash(git:*)",
+        "dependencies:",
+        '  kubectl: ">=1.28"',
+      ].join("\n") + "\n",
+    );
+    await writeTextFile(
+      join(baseDir, "skills/security/from-base/SKILL.md"),
+      `---\nname: from-base\ndescription: base skill\ncategory: security\n---\n# from-base\n`,
+    );
+    await ensureDir(join(teamDir, "skills/platform/from-team"));
+    await writeTextFile(
+      join(teamDir, "preset.yaml"),
+      `name: team\nversion: 1.0.0\nextends:\n  - ${baseDir}\n`,
+    );
+    await writeTextFile(
+      join(teamDir, "skills/platform/from-team/SKILL.md"),
+      `---\nname: from-team\ndescription: team skill\ncategory: platform\n---\n# from-team\n`,
+    );
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${teamDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    if (code !== 0) console.error(stderr);
+
+    // Inherited (base) AND direct (team) skill files both materialized locally.
+    expect(await fileExists(join(tmp, "skills/security/from-base/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, "skills/platform/from-team/SKILL.md"))).toBe(true);
+
+    // Inherited hooks / permissions / dependencies merged into prsm.yaml.
+    const after = parseYaml<{
+      hooks: Record<string, string>;
+      permissions: string[];
+      dependencies: Record<string, string>;
+      extends: string[];
+    }>(await readTextFile(join(tmp, "prsm.yaml")));
+    expect(after.hooks["session-start"]).toBe("./hooks/base.sh");
+    expect(after.permissions).toContain("Bash(git:*)");
+    expect(after.dependencies.kubectl).toBe(">=1.28");
+    expect(after.extends).toEqual([]);
+  });
+
   it("removes ejected presets from extends list", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await setupPreset(presetDir, {});
