@@ -14,10 +14,6 @@ extends: []
 
 dependencies: {}
 
-skills: []
-
-agents: []
-
 hooks:
   session-start: hooks/session-start.sh
   pre-tool-use: hooks/pretool-safety.sh
