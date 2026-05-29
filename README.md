@@ -23,9 +23,10 @@ of capability (a `SKILL.md` with frontmatter and instructions); prsm is the sour
 that authors, composes, and refracts those skills across runtimes.
 
 Because of that layering, prsm can **consume** an existing skills repo directly. If you
-point `extends:` at a directory that has no `preset.yaml` but does have a
-`skills/<category>/<name>/SKILL.md` tree, prsm treats it as a "skills-shaped repo" — a
-preset without the manifest — and installs its `SKILL.md` files:
+point `extends:` at a directory that has no `preset.yaml` but does have a `skills/` tree,
+prsm treats it as a "skills-shaped repo" — a preset without the manifest — and installs
+its `SKILL.md` files. Both the canonical Agent Skills layout (`skills/<name>/SKILL.md`)
+and prsm's categorized layout (`skills/<category>/<name>/SKILL.md`) are recognized:
 
 ```yaml
 # prsm.yaml
