@@ -1,6 +1,11 @@
 import { Command } from "commander";
 import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { resolvePresetClosure, type ResolvedPreset } from "../core/preset";
+import {
+  resolvePresetClosure,
+  isSkillsShapedRepo,
+  skillsShapedIdentity,
+  type ResolvedPreset,
+} from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
 import { readTextFile, writeTextFile, ensureDir, fileExists } from "../utils/fs";
 import {
@@ -150,7 +155,24 @@ export function ejectCommand(): Command {
         const flattened: ResolvedPreset[] = [];
         for (const presetRef of toEject) {
           // Resolve relative extends against the workspace root, not CWD (#6).
-          flattened.push(...(await resolvePresetClosure(resolve(root, presetRef))));
+          const presetDir = resolve(root, presetRef);
+          // Skills-shaped refs (no preset.yaml) have no manifest or closure —
+          // eject them with an empty synthetic manifest so the existing copy +
+          // merge flow materializes their skills/ tree and contributes no
+          // hooks/permissions/dependencies. Mirrors install/build precedence so
+          // a skills-shaped ref that installs and builds can also be ejected (BR2).
+          if (
+            !(await fileExists(join(presetDir, "preset.yaml"))) &&
+            (await isSkillsShapedRepo(presetDir))
+          ) {
+            const { name, version } = skillsShapedIdentity(presetDir);
+            flattened.push({
+              dir: presetDir,
+              manifest: { name, version, extends: [], skills: [], agents: [], hooks: {}, permissions: [], dependencies: {} },
+            });
+            continue;
+          }
+          flattened.push(...(await resolvePresetClosure(presetDir)));
         }
         closurePresets = flattened;
       } catch (err) {
