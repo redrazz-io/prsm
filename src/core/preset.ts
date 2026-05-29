@@ -1,4 +1,4 @@
-import { join, relative, resolve, sep } from "path";
+import { basename, join, relative, resolve, sep } from "path";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseYaml } from "../utils/yaml";
 import { sha256Hex } from "../utils/checksum";
@@ -145,6 +145,94 @@ async function walkPresetClosure(
     added.add(canonical);
     out.push({ dir: presetDir, manifest });
   }
+}
+
+// --- Skills-compat interop bridge (Block 2, Approach B) -------------------
+//
+// A "skills-shaped repo" is a directory with NO preset.yaml at its root but
+// WITH a skills/<category>/<name>/SKILL.md tree — i.e. a preset without the
+// manifest. prsm consumes it as an inheritance source so existing Agent Skills
+// repos can be reused without authoring a preset.yaml. preset.yaml ALWAYS wins
+// when both are present (existing behavior is unchanged).
+
+/**
+ * True when `dir` is skills-shaped: no preset.yaml, but a skills/ directory
+ * containing at least one SKILL.md. Used to decide which code path an
+ * `extends:` ref takes.
+ */
+export async function isSkillsShapedRepo(dir: string): Promise<boolean> {
+  if (await fileExists(join(dir, "preset.yaml"))) return false;
+  return (await collectSkillsShapedFiles(dir)).length > 0;
+}
+
+/**
+ * Collect the SKILL.md paths (relative, POSIX) under a skills-shaped repo's
+ * skills/<category>/<name>/ tree. Returns [] when there is no skills/ dir.
+ */
+async function collectSkillsShapedFiles(dir: string): Promise<string[]> {
+  const skillsDir = join(dir, "skills");
+  if (!(await fileExists(skillsDir))) return [];
+  const out: string[] = [];
+  const cats = await readdir(skillsDir, { withFileTypes: true });
+  for (const cat of cats) {
+    if (!cat.isDirectory()) continue;
+    const skillNames = await readdir(join(skillsDir, cat.name), { withFileTypes: true });
+    for (const sn of skillNames) {
+      if (!sn.isDirectory()) continue;
+      const rel = `skills/${cat.name}/${sn.name}/SKILL.md`;
+      if (await fileExists(join(dir, rel))) out.push(rel);
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Synthetic lockfile identity for a skills-shaped source. Such a source has no
+ * preset.yaml, so no declared name/version. We derive a stable, namespaced
+ * identity from the directory basename so the existing integrity machinery
+ * (checksum gate, "not in prsm.lock" check) applies unchanged:
+ *
+ *   name    = "skills:" + basename(ref)
+ *   version = "0.0.0"            (no manifest version exists)
+ *   checksum = computePresetContentHash(ref)  (same hash as a real preset)
+ *
+ * The "skills:" prefix guarantees the synthetic key can never collide with a
+ * real preset.name (preset names cannot contain ":").
+ */
+export function skillsShapedIdentity(dir: string): { name: string; version: string } {
+  return { name: `skills:${basename(dir)}`, version: "0.0.0" };
+}
+
+/** Number of SKILL.md files a skills-shaped repo will contribute. */
+export async function countSkillsShapedFiles(dir: string): Promise<number> {
+  return (await collectSkillsShapedFiles(dir)).length;
+}
+
+/**
+ * Load a skills-shaped repo as a build layer — the no-manifest counterpart to
+ * loadPresetAsLayer. Skills are tagged origin "preset" with the synthetic name
+ * as originDetail. There is no extends resolution, no hooks, no permissions:
+ * a skills-shaped repo carries only SKILL.md files.
+ */
+export async function loadSkillsShapedAsLayer(dir: string): Promise<WorkspaceModel> {
+  const { name, version } = skillsShapedIdentity(dir);
+  const skills = [];
+  for (const rel of await collectSkillsShapedFiles(dir)) {
+    const p = join(dir, ...rel.split("/"));
+    const parsed = parseSkillFile(await readTextFile(p), p);
+    skills.push(skillToResolved(parsed, "preset", name));
+  }
+  return {
+    name,
+    version,
+    runtimes: [],
+    skills,
+    agents: [],
+    hooks: {},
+    permissions: [],
+    repos: {},
+    output: {},
+  };
 }
 
 export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
