@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import pkg from "../package.json" with { type: "json" };
 import { buildCommand } from "./commands/build";
 import { contextCommand } from "./commands/context";
 import { diffCommand } from "./commands/diff";
@@ -16,7 +17,7 @@ const program = new Command();
 program
 	.name("prsm")
 	.description("Wire your AI stack once, deploy to any runtime.")
-	.version("1.0.0");
+	.version(pkg.version);
 
 program.addCommand(buildCommand());
 program.addCommand(validateCommand());
