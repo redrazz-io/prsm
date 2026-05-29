@@ -4,9 +4,9 @@
   "description": "Wire your AI stack once, deploy to any runtime.",
   "type": "module",
   "bin": {
-    "prsm": "./dist/cli.js"
+    "prsm": "dist/cli.js"
   },
-  "files": ["dist"],
+  "files": ["dist/cli.js"],
   "publishConfig": {
     "access": "public",
     "provenance": true
