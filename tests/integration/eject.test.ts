@@ -404,6 +404,35 @@ extends:
     expect(shared).not.toContain("TEAM_VERSION");
   });
 
+  it("ejects a skills-shaped repo — materializes its SKILL.md files, empties extends (BR2)", async () => {
+    // A workspace extending a skills-shaped repo (no preset.yaml) must be
+    // ejectable: eject calling resolvePresetClosure unconditionally threw
+    // 'preset.yaml not found'. eject now branches on skills-shaped like install/build.
+    const repo = join(tmp, "skills-repo");
+    await ensureDir(join(repo, "skills/security/from-skills"));
+    await writeTextFile(
+      join(repo, "skills/security/from-skills/SKILL.md"),
+      `---\nname: from-skills\ndescription: a skills-shaped skill\ncategory: security\n---\n# from-skills\n`,
+    );
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${repo}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    if (code !== 0) console.error(stderr);
+
+    // Skill file materialized locally; workspace is now self-contained.
+    expect(await fileExists(join(tmp, "skills/security/from-skills/SKILL.md"))).toBe(true);
+    const after = parseYaml<{ extends: string[] }>(await readTextFile(join(tmp, "prsm.yaml")));
+    expect(after.extends).toEqual([]);
+  });
+
   it("removes ejected presets from extends list", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await setupPreset(presetDir, {});
