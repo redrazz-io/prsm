@@ -26,15 +26,17 @@ This skill routes work.
 `;
 
 describe("parseSkillFile", () => {
-  it("extracts frontmatter and content", () => {
-    const skill = parseSkillFile(SKILL_MD, "skills/platform/copilot/SKILL.md");
-    expect(skill.frontmatter.name).toBe("platform-copilot");
-    expect(skill.frontmatter.triggers).toContain("dispatch work");
-    expect(skill.content).toContain("# Platform Copilot");
-    expect(skill.frontmatter.dependencies?.["hub-adr"].required).toBe(true);
-  });
+	it("extracts frontmatter and content", () => {
+		const skill = parseSkillFile(SKILL_MD, "skills/platform/copilot/SKILL.md");
+		expect(skill.frontmatter.name).toBe("platform-copilot");
+		expect(skill.frontmatter.triggers).toContain("dispatch work");
+		expect(skill.content).toContain("# Platform Copilot");
+		expect(skill.frontmatter.dependencies?.["hub-adr"].required).toBe(true);
+	});
 
-  it("throws when name is missing", () => {
-    expect(() => parseSkillFile("---\ndescription: x\n---\ncontent", "path")).toThrow();
-  });
+	it("throws when name is missing", () => {
+		expect(() =>
+			parseSkillFile("---\ndescription: x\n---\ncontent", "path"),
+		).toThrow();
+	});
 });
