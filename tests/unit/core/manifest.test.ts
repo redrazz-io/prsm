@@ -17,22 +17,24 @@ output:
 `;
 
 describe("parseManifest", () => {
-  it("parses a valid prsm.yaml", () => {
-    const m = parseManifest(VALID_YAML);
-    expect(m.name).toBe("my-hub");
-    expect(m.runtimes).toContain("claude-code");
-    expect(m.hooks["session-start"]).toBe("hooks/session-start.sh");
-  });
+	it("parses a valid prsm.yaml", () => {
+		const m = parseManifest(VALID_YAML);
+		expect(m.name).toBe("my-hub");
+		expect(m.runtimes).toContain("claude-code");
+		expect(m.hooks["session-start"]).toBe("hooks/session-start.sh");
+	});
 
-  it("throws on missing required fields", () => {
-    expect(() => parseManifest("name: only-name")).toThrow();
-  });
+	it("throws on missing required fields", () => {
+		expect(() => parseManifest("name: only-name")).toThrow();
+	});
 
-  it("defaults missing optional fields to sensible empties", () => {
-    const m = parseManifest("name: x\nversion: 1.0.0\nruntimes:\n  - claude-code");
-    expect(m.extends).toEqual([]);
-    expect(m.dependencies).toEqual({});
-    expect(m.repos).toEqual({});
-    expect(m.output).toEqual({});
-  });
+	it("defaults missing optional fields to sensible empties", () => {
+		const m = parseManifest(
+			"name: x\nversion: 1.0.0\nruntimes:\n  - claude-code",
+		);
+		expect(m.extends).toEqual([]);
+		expect(m.dependencies).toEqual({});
+		expect(m.repos).toEqual({});
+		expect(m.output).toEqual({});
+	});
 });

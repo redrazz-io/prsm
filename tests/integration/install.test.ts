@@ -6,8 +6,12 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 
 let tmp: string;
-beforeEach(async () => { tmp = await mkdtemp(join(tmpdir(), "prsm-install-")); });
-afterEach(async () => { await rm(tmp, { recursive: true }); });
+beforeEach(async () => {
+	tmp = await mkdtemp(join(tmpdir(), "prsm-install-"));
+});
+afterEach(async () => {
+	await rm(tmp, { recursive: true });
+});
 
 const MANIFEST_NO_PRESETS = `
 name: test-ws
@@ -27,17 +31,17 @@ permissions: []
 `;
 
 describe("runInstall", () => {
-  it("creates prsm.lock when no extends (empty lock)", async () => {
-    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST_NO_PRESETS);
-    await runInstall(tmp);
-    expect(await fileExists(join(tmp, "prsm.lock"))).toBe(true);
-  });
+	it("creates prsm.lock when no extends (empty lock)", async () => {
+		await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST_NO_PRESETS);
+		await runInstall(tmp);
+		expect(await fileExists(join(tmp, "prsm.lock"))).toBe(true);
+	});
 
-  it("resolves local preset and writes lock entry", async () => {
-    const presetDir = join(tmp, "presets/test-preset");
-    await ensureDir(presetDir);
-    await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
-    const manifest = `
+	it("resolves local preset and writes lock entry", async () => {
+		const presetDir = join(tmp, "presets/test-preset");
+		await ensureDir(presetDir);
+		await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
+		const manifest = `
 name: test-ws
 version: 1.0.0
 runtimes:
@@ -45,8 +49,8 @@ runtimes:
 extends:
   - ${presetDir}
 `;
-    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
-    await runInstall(tmp);
-    expect(await fileExists(join(tmp, "prsm.lock"))).toBe(true);
-  });
+		await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+		await runInstall(tmp);
+		expect(await fileExists(join(tmp, "prsm.lock"))).toBe(true);
+	});
 });
