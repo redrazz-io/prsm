@@ -28,8 +28,9 @@ describe("lockfile", () => {
     };
     await writeLockFile(join(tmp, "prsm.lock"), lock);
     const read = await readLockFile(join(tmp, "prsm.lock"));
-    expect(read.version).toBe(1);
-    expect(read.presets["prsm-preset-platform-engineering"].version).toBe("2.0.0");
+    expect(read).not.toBeNull();
+    expect(read!.version).toBe(1);
+    expect(read!.presets["prsm-preset-platform-engineering"].version).toBe("2.0.0");
   });
 
   it("returns null for missing lockfile", async () => {

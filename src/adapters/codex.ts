@@ -12,7 +12,7 @@ export class CodexAdapter implements RuntimeAdapter {
   async compileSkill(skill: ResolvedSkill, outputBase: string): Promise<void> {
     const dirName = `hub-${skill.category}-${skill.name}`;
     const outPath = join(outputBase, ".agents/skills", dirName, "SKILL.md");
-    const compiled = matter.stringify(skill.content, skill.frontmatter as Record<string, unknown>);
+    const compiled = matter.stringify(skill.content, skill.frontmatter as unknown as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
   }
