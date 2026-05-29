@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - run: bun run ci
+      - run: bun run typecheck
+      - run: bun test
+      - name: Assert tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+  publish-npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.11
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Ensure npm >= 11.5 (OIDC trusted publishing)
+        run: npm install -g npm@latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build:bundle
+      - name: Publish to npm (OIDC + provenance, no token)
+        run: npm publish --access public
+
+  release-binaries:
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - bun-linux-x64
+          - bun-linux-arm64
+          - bun-darwin-x64
+          - bun-darwin-arm64
+          - bun-windows-x64
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - name: Compile standalone binary
+        run: |
+          EXT=""
+          if [ "${{ matrix.target }}" = "bun-windows-x64" ]; then EXT=".exe"; fi
+          bun build src/cli.ts --compile --target=${{ matrix.target }} \
+            --outfile "dist/prsm-${{ matrix.target }}${EXT}"
+      - name: Attach binary to the GitHub Release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          files: dist/prsm-${{ matrix.target }}*
