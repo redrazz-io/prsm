@@ -3,9 +3,25 @@ import { loadWorkspace } from "../core/workspace";
 import { mergeLayers } from "./merger";
 import { getAdapter } from "../adapters/index";
 import { readLockFile } from "../core/lockfile";
-import { loadPresetAsLayer, computePresetContentHash, resolvePresetClosure } from "../core/preset";
+import {
+  loadPresetAsLayer,
+  computePresetContentHash,
+  resolvePresetClosure,
+  isSkillsShapedRepo,
+  skillsShapedIdentity,
+  loadSkillsShapedAsLayer,
+} from "../core/preset";
 import { logger } from "../utils/logger";
+import { fileExists } from "../utils/fs";
 import type { WorkspaceModel, Runtime } from "../types";
+
+export interface CompileOptions {
+  /**
+   * Require a preset.yaml for every extends: ref; fail on skills-shaped repos.
+   * Mirrors `prsm install --strict-preset` (Block 2). Defaults to false.
+   */
+  strictPreset?: boolean;
+}
 
 /**
  * Whether an item with the given frontmatter.runtimes should be emitted for a
@@ -16,7 +32,7 @@ function targetsRuntime(itemRuntimes: Runtime[] | undefined, runtime: Runtime): 
   return itemRuntimes.includes(runtime);
 }
 
-export async function compile(workspaceRoot: string): Promise<void> {
+export async function compile(workspaceRoot: string, opts: CompileOptions = {}): Promise<void> {
   const ws = await loadWorkspace(workspaceRoot);
   const manifest = ws.manifest;
 
@@ -30,26 +46,51 @@ export async function compile(workspaceRoot: string): Promise<void> {
       );
     }
 
+    const verifyChecksum = (name: string, actualChecksum: string) => {
+      const lockEntry = lock.presets[name];
+      if (!lockEntry) {
+        throw new Error(
+          `Preset "${name}" is not in prsm.lock. Run prsm install to update the lockfile.`,
+        );
+      }
+      if (lockEntry.checksum !== actualChecksum) {
+        throw new Error(
+          `Preset "${name}" checksum mismatch — preset contents changed since last prsm install. Run prsm install to update prsm.lock.`,
+        );
+      }
+    };
+
     for (const presetRef of manifest.extends) {
       // Resolve relative extends against the workspace root, not process.cwd(),
       // so build works from any subdirectory (#6). Absolute paths pass through.
       const presetDir = resolve(workspaceRoot, presetRef);
+
+      // Precedence: a real preset.yaml ALWAYS wins. Only when there is no
+      // preset.yaml do we consider the skills-shaped interop path (Block 2).
+      if (!(await fileExists(join(presetDir, "preset.yaml")))) {
+        if (opts.strictPreset) {
+          throw new Error(
+            `No preset.yaml found in "${presetRef}" and --strict-preset is set. ` +
+              `Add a preset.yaml or drop --strict-preset to build with it as a skills-shaped repo.`,
+          );
+        }
+        if (await isSkillsShapedRepo(presetDir)) {
+          const { name } = skillsShapedIdentity(presetDir);
+          // Reuse the SAME integrity machinery as real presets — the synthetic
+          // identity and computePresetContentHash keep the checksum gate intact.
+          verifyChecksum(name, `sha256:${await computePresetContentHash(presetDir)}`);
+          layers.push(await loadSkillsShapedAsLayer(presetDir));
+          continue;
+        }
+        // Not skills-shaped either: fall through to the resolver, which throws
+        // a clear "preset.yaml not found" error.
+      }
+
       // Verify the FULL transitive closure against the lockfile, not just the
       // direct preset — a mutated `../base` referenced by a direct preset must
       // be caught even though it lives outside the direct preset's tree (Codex #1).
       for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir)) {
-        const actualChecksum = `sha256:${await computePresetContentHash(dir)}`;
-        const lockEntry = lock.presets[pm.name];
-        if (!lockEntry) {
-          throw new Error(
-            `Preset "${pm.name}" is not in prsm.lock. Run prsm install to update the lockfile.`,
-          );
-        }
-        if (lockEntry.checksum !== actualChecksum) {
-          throw new Error(
-            `Preset "${pm.name}" checksum mismatch — preset contents changed since last prsm install. Run prsm install to update prsm.lock.`,
-          );
-        }
+        verifyChecksum(pm.name, `sha256:${await computePresetContentHash(dir)}`);
       }
 
       layers.push(await loadPresetAsLayer(presetDir));
