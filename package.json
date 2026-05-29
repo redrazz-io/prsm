@@ -1,16 +1,26 @@
 {
-  "name": "@prsm/prsm",
+  "name": "@redrazz/prsm",
   "version": "1.0.0",
   "description": "Wire your AI stack once, deploy to any runtime.",
+  "type": "module",
   "bin": {
     "prsm": "./dist/cli.js"
   },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "bun build src/cli.ts --compile --outfile dist/prsm",
-    "build:bundle": "bun build src/cli.ts --outfile dist/cli.js --target bun",
+    "build:bundle": "bun build src/cli.ts --outfile dist/cli.js --target node --banner '#!/usr/bin/env node'",
     "prepack": "bun run build:bundle",
     "test": "bun test",
-    "dev": "bun run src/cli.ts"
+    "dev": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "ci": "biome ci ."
   },
   "dependencies": {
     "chalk": "^5.3.0",
