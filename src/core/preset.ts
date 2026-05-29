@@ -62,7 +62,11 @@ export async function computePresetContentHash(presetDir: string): Promise<strin
 }
 
 const PresetManifestSchema = z.object({
-  name: z.string(),
+  // Reject ':' so a preset name can never collide with the synthetic
+  // "skills:<basename>" namespace used for skills-shaped sources (Block 2).
+  name: z.string().refine((s) => !s.includes(":"), {
+    message: "preset name must not contain ':' (reserved for the skills-shaped namespace)",
+  }),
   version: z.string(),
   description: z.string().optional(),
   extends: z.array(z.string()).default([]),
@@ -211,7 +215,7 @@ async function collectSkillsShapedFiles(dir: string): Promise<string[]> {
  *   checksum = computePresetContentHash(ref)  (same hash as a real preset)
  *
  * The "skills:" prefix guarantees the synthetic key can never collide with a
- * real preset.name (preset names cannot contain ":").
+ * real preset.name — PresetManifestSchema rejects ':' in names (enforced).
  */
 export function skillsShapedIdentity(dir: string): { name: string; version: string } {
   return { name: `skills:${basename(dir)}`, version: "0.0.0" };
