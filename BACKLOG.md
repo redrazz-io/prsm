@@ -148,4 +148,4 @@ These are real bugs that pre-date Block 1 — flagged here for follow-up work, n
 - [ ] Preset inheritance working (extends: chain resolves correctly)
 - [ ] Migration tool validates (prsm init --from-claude-dir parses platform-hub .claude/)
 - [ ] Documentation complete (README, architecture, plugin guide, ADR)
-- [ ] npm package published as `prsm`
+- [ ] npm package published as `@redrazz/prsm` (the `@prsm` npm scope is owned by a third party; `@redrazz` matches the GitHub org `redrazz-io`)
