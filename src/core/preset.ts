@@ -1,12 +1,12 @@
-import { join, relative, sep } from "path";
-import { readTextFile, fileExists } from "../utils/fs";
-import { parseYaml } from "../utils/yaml";
-import { sha256Hex } from "../utils/checksum";
+import { readdir } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
 import { z } from "zod";
-import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
+import type { PresetManifest, WorkspaceModel } from "../types";
+import { sha256Hex } from "../utils/checksum";
+import { fileExists, readTextFile } from "../utils/fs";
+import { parseYaml } from "../utils/yaml";
+import { agentToResolved, parseAgentFile } from "./agent";
 import { parseSkillFile, skillToResolved } from "./skill";
-import { parseAgentFile, agentToResolved } from "./agent";
-import { readdir } from "fs/promises";
 
 const HASH_SKIP_FILENAMES = new Set([".DS_Store", "Thumbs.db"]);
 
@@ -60,7 +60,7 @@ export async function computePresetContentHash(
 	const parts: string[] = [];
 	for (const rel of relPaths) {
 		const content = await readTextFile(join(presetDir, ...rel.split("/")));
-		parts.push(rel + "\0" + normalizeContent(content) + "\0");
+		parts.push(`${rel}\0${normalizeContent(content)}\0`);
 	}
 	return sha256Hex(parts.join(""));
 }

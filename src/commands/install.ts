@@ -1,10 +1,10 @@
+import { join } from "node:path";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { parsePresetManifest, computePresetContentHash } from "../core/preset";
-import { writeLockFile, createLockFile } from "../core/lockfile";
-import { readTextFile, fileExists } from "../utils/fs";
+import { createLockFile, writeLockFile } from "../core/lockfile";
+import { computePresetContentHash, parsePresetManifest } from "../core/preset";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
+import { fileExists, readTextFile } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
 
 export async function runInstall(root: string): Promise<void> {
 	const ws = await loadWorkspace(root);

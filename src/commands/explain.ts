@@ -1,7 +1,7 @@
-import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { logger } from "../utils/logger";
 import chalk from "chalk";
+import { Command } from "commander";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
+import { logger } from "../utils/logger";
 
 export function explainCommand(): Command {
 	return new Command("explain")

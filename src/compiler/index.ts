@@ -1,16 +1,16 @@
-import { join } from "path";
-import { loadWorkspace } from "../core/workspace";
-import { mergeLayers } from "./merger";
+import { join } from "node:path";
 import { getAdapter } from "../adapters/index";
 import { readLockFile } from "../core/lockfile";
 import {
+	computePresetContentHash,
 	loadPresetAsLayer,
 	parsePresetManifest,
-	computePresetContentHash,
 } from "../core/preset";
+import { loadWorkspace } from "../core/workspace";
+import type { WorkspaceModel } from "../types";
 import { readTextFile } from "../utils/fs";
 import { logger } from "../utils/logger";
-import type { WorkspaceModel } from "../types";
+import { mergeLayers } from "./merger";
 
 export async function compile(workspaceRoot: string): Promise<void> {
 	const ws = await loadWorkspace(workspaceRoot);

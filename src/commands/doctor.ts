@@ -1,11 +1,11 @@
+import { join } from "node:path";
+import chalk from "chalk";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import { readLockFile } from "../core/lockfile";
-import { validateDependencyPresence } from "../validators/dependencies";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
 import { fileExists } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
-import chalk from "chalk";
+import { validateDependencyPresence } from "../validators/dependencies";
 
 export function doctorCommand(): Command {
 	return new Command("doctor")

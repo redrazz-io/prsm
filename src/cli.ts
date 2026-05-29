@@ -1,15 +1,15 @@
 import { Command } from "commander";
 import { buildCommand } from "./commands/build";
-import { validateCommand } from "./commands/validate";
-import { installCommand } from "./commands/install";
-import { initCommand } from "./commands/init";
-import { listCommand } from "./commands/list";
-import { explainCommand } from "./commands/explain";
-import { doctorCommand } from "./commands/doctor";
-import { ejectCommand } from "./commands/eject";
 import { contextCommand } from "./commands/context";
 import { diffCommand } from "./commands/diff";
+import { doctorCommand } from "./commands/doctor";
+import { ejectCommand } from "./commands/eject";
+import { explainCommand } from "./commands/explain";
+import { initCommand } from "./commands/init";
+import { installCommand } from "./commands/install";
+import { listCommand } from "./commands/list";
 import { syncCommand } from "./commands/sync";
+import { validateCommand } from "./commands/validate";
 
 const program = new Command();
 

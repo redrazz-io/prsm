@@ -1,6 +1,6 @@
-import { readTextFile, writeTextFile, fileExists } from "../utils/fs";
-import { parseYaml, dumpYaml } from "../utils/yaml";
 import type { LockFile } from "../types";
+import { fileExists, readTextFile, writeTextFile } from "../utils/fs";
+import { dumpYaml, parseYaml } from "../utils/yaml";
 
 export async function readLockFile(lockPath: string): Promise<LockFile | null> {
 	if (!(await fileExists(lockPath))) return null;

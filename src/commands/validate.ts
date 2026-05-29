@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { validateDependencyPresence } from "../validators/dependencies";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
 import { logger } from "../utils/logger";
+import { validateDependencyPresence } from "../validators/dependencies";
 
 export async function runValidate(root: string): Promise<string[]> {
 	const ws = await loadWorkspace(root);

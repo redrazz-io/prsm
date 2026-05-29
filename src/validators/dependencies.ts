@@ -1,12 +1,12 @@
-import { join } from "path";
-import { fileExists } from "../utils/fs";
+import { join } from "node:path";
 import type { ResolvedSkill } from "../types";
+import { fileExists } from "../utils/fs";
 
 async function findSkillPath(
 	depName: string,
 	workspaceRoot: string,
 ): Promise<string | null> {
-	const { readdir } = await import("fs/promises");
+	const { readdir } = await import("node:fs/promises");
 	const skillsDir = join(workspaceRoot, "skills");
 	if (!(await fileExists(skillsDir))) return null;
 

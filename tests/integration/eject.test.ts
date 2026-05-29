@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { writeTextFile, ensureDir, readTextFile } from "../../src/utils/fs";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ensureDir, readTextFile, writeTextFile } from "../../src/utils/fs";
 import { parseYaml } from "../../src/utils/yaml";
-import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
-import { spawn } from "child_process";
 
 let tmp: string;
 beforeEach(async () => {
@@ -46,7 +46,7 @@ async function setupPreset(
 		`permissions: ${JSON.stringify(spec.permissions ?? [])}`,
 		`dependencies: ${JSON.stringify(spec.dependencies ?? {})}`,
 	].join("\n");
-	await writeTextFile(join(presetDir, "preset.yaml"), presetYaml + "\n");
+	await writeTextFile(join(presetDir, "preset.yaml"), `${presetYaml}\n`);
 }
 
 describe("eject manifest merge", () => {

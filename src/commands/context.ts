@@ -1,10 +1,10 @@
+import { join } from "node:path";
+import chalk from "chalk";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import { findRepo } from "../core/repo-map";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
 import { fileExists, readTextFile } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
-import chalk from "chalk";
 
 export function contextCommand(): Command {
 	return new Command("context")
@@ -17,11 +17,11 @@ export function contextCommand(): Command {
 				process.exit(1);
 			}
 			const ws = await loadWorkspace(root);
-			const found = findRepo(ws.repos as any, repoName);
+			const found = findRepo(ws.repos, repoName);
 
 			if (!found) {
 				const available = Object.values(ws.repos)
-					.flatMap((cat: any) => Object.keys(cat))
+					.flatMap((cat) => Object.keys(cat))
 					.sort();
 				logger.error(
 					`Repo "${repoName}" not found. Available: ${available.join(", ")}`,

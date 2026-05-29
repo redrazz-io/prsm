@@ -1,5 +1,5 @@
-import { join } from "path";
-import { fileExists, readTextFile, writeTextFile, ensureDir } from "./fs";
+import { join } from "node:path";
+import { ensureDir, fileExists, readTextFile, writeTextFile } from "./fs";
 
 function manifestPath(outputBase: string, adapterId: string): string {
 	return join(outputBase, `.prsm/generated-files-${adapterId}.json`);
@@ -28,7 +28,7 @@ export async function cleanGeneratedFiles(
 ): Promise<void> {
 	const mPath = manifestPath(outputBase, adapterId);
 	if (!(await fileExists(mPath))) return;
-	const { rm } = await import("fs/promises");
+	const { rm } = await import("node:fs/promises");
 	const files: string[] = JSON.parse(await readTextFile(mPath));
 	for (const f of files) {
 		try {

@@ -1,10 +1,10 @@
+import { join } from "node:path";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { listAllRepos } from "../core/repo-map";
 import { compile } from "../compiler/index";
+import { listAllRepos } from "../core/repo-map";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
 import { fileExists } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
 
 export function syncCommand(): Command {
 	return new Command("sync")
@@ -16,7 +16,7 @@ export function syncCommand(): Command {
 				process.exit(1);
 			}
 			const ws = await loadWorkspace(root);
-			const repos = listAllRepos(ws.repos as any);
+			const repos = listAllRepos(ws.repos);
 
 			if (repos.length === 0) {
 				logger.info("No repos mapped. Add repos: block to prsm.yaml.");

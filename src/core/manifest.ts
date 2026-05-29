@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { parseYaml } from "../utils/yaml";
 import type { WorkspaceManifest } from "../types";
+import { parseYaml } from "../utils/yaml";
 
 const RepoEntrySchema = z.object({
 	path: z.string(),
