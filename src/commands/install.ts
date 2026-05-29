@@ -3,7 +3,7 @@ import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import { computePresetContentHash, resolvePresetClosure } from "../core/preset";
 import { writeLockFile, createLockFile } from "../core/lockfile";
 import { logger } from "../utils/logger";
-import { join } from "path";
+import { join, resolve } from "path";
 
 export async function runInstall(root: string): Promise<void> {
   const ws = await loadWorkspace(root);
@@ -14,7 +14,9 @@ export async function runInstall(root: string): Promise<void> {
   // direct presets — otherwise a mutated transitive preset slips past the
   // checksum gate at build time (Codex #1).
   for (const presetRef of manifest.extends) {
-    for (const { dir, manifest: pm } of await resolvePresetClosure(presetRef)) {
+    // Resolve relative extends against the workspace root, not process.cwd(),
+    // so install works from any subdirectory (#6). Absolute paths pass through.
+    for (const { dir, manifest: pm } of await resolvePresetClosure(resolve(root, presetRef))) {
       const checksum = `sha256:${await computePresetContentHash(dir)}`;
       presetEntries[pm.name] = { version: pm.version, url: dir, checksum };
       logger.success(`Resolved ${pm.name}@${pm.version}`);

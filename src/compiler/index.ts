@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, resolve } from "path";
 import { loadWorkspace } from "../core/workspace";
 import { mergeLayers } from "./merger";
 import { getAdapter } from "../adapters/index";
@@ -31,10 +31,13 @@ export async function compile(workspaceRoot: string): Promise<void> {
     }
 
     for (const presetRef of manifest.extends) {
+      // Resolve relative extends against the workspace root, not process.cwd(),
+      // so build works from any subdirectory (#6). Absolute paths pass through.
+      const presetDir = resolve(workspaceRoot, presetRef);
       // Verify the FULL transitive closure against the lockfile, not just the
       // direct preset — a mutated `../base` referenced by a direct preset must
       // be caught even though it lives outside the direct preset's tree (Codex #1).
-      for (const { dir, manifest: pm } of await resolvePresetClosure(presetRef)) {
+      for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir)) {
         const actualChecksum = `sha256:${await computePresetContentHash(dir)}`;
         const lockEntry = lock.presets[pm.name];
         if (!lockEntry) {
@@ -49,7 +52,7 @@ export async function compile(workspaceRoot: string): Promise<void> {
         }
       }
 
-      layers.push(await loadPresetAsLayer(presetRef));
+      layers.push(await loadPresetAsLayer(presetDir));
     }
   }
 
@@ -83,12 +86,15 @@ export async function compile(workspaceRoot: string): Promise<void> {
     const skillsForRuntime = model.skills.filter((s) => targetsRuntime(s.frontmatter.runtimes, runtime));
     const agentsForRuntime = model.agents.filter((a) => targetsRuntime(a.frontmatter.runtimes, runtime));
 
+    // Per-runtime output paths from prsm.yaml (#9); adapters fall back to defaults.
+    const output = model.output[runtime];
+
     for (const skill of skillsForRuntime) {
-      await adapter.compileSkill(skill, workspaceRoot);
+      await adapter.compileSkill(skill, workspaceRoot, output);
     }
 
     for (const agent of agentsForRuntime) {
-      await adapter.compileAgent(agent, workspaceRoot);
+      await adapter.compileAgent(agent, workspaceRoot, output);
     }
 
     await adapter.generateConfig(model, workspaceRoot);

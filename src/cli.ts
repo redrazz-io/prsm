@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { Command } from "commander";
 import { buildCommand } from "./commands/build";
 import { validateCommand } from "./commands/validate";

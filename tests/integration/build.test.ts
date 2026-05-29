@@ -239,6 +239,31 @@ extends:
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
 
+  it("resolves a relative extends: path against the workspace root, not CWD (#6)", async () => {
+    // The test process CWD is the repo root, not `tmp`. A relative `extends:`
+    // entry must resolve against the workspace root (tmp) that install/compile
+    // are handed — not against process.cwd().
+    const presetDir = join(tmp, "presets/test-preset");
+    await ensureDir(join(presetDir, "skills/security/preset-skill"));
+    await writeTextFile(join(presetDir, "preset.yaml"), PRESET_YAML);
+    await writeTextFile(join(presetDir, "skills/security/preset-skill/SKILL.md"), PRESET_SKILL_MD);
+
+    const manifestRelative = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+extends:
+  - ./presets/test-preset
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestRelative);
+
+    const { runInstall } = await import("../../src/commands/install");
+    await runInstall(tmp);
+    await expect(compile(tmp)).resolves.toBeUndefined();
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-preset-skill/SKILL.md"))).toBe(true);
+  });
+
   it("throws when extends declared but prsm.lock missing", async () => {
     const presetDir = join(tmp, "presets/test-preset");
     await ensureDir(presetDir);
@@ -357,6 +382,95 @@ output:
     const settings = JSON.parse(await readTextFile(join(tmp, ".claude/settings.json")));
     expect(settings.permissions.allow).toContain("Bash(git:*)");
     expect(settings.permissions.allow).toContain("Read(./docs/**)");
+  });
+
+  it("honors custom output: paths from prsm.yaml (#9)", async () => {
+    const manifest = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+hooks:
+  stop: hooks/stop.sh
+output:
+  claude-code:
+    skills: custom/skills/
+    agents: custom/agents/
+    settings: custom/settings.json
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+    await ensureDir(join(tmp, "agents/my-agent"));
+    await writeTextFile(
+      join(tmp, "agents/my-agent/AGENT.md"),
+      "---\nname: my-agent\ndescription: an agent\n---\nbody\n",
+    );
+
+    await compile(tmp);
+
+    // Outputs land at the configured paths.
+    expect(await fileExists(join(tmp, "custom/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, "custom/agents/my-agent.md"))).toBe(true);
+    expect(await fileExists(join(tmp, "custom/settings.json"))).toBe(true);
+
+    // The hardcoded defaults are NOT used when output: overrides them.
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(false);
+    expect(await fileExists(join(tmp, ".claude/settings.json"))).toBe(false);
+  });
+
+  it("falls back to default output paths when output: is absent (#9 default)", async () => {
+    const manifest = `
+name: test-ws
+version: 1.0.0
+runtimes:
+  - claude-code
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    await ensureDir(join(tmp, "skills/platform/my-skill"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
+  });
+
+  it("drops a prsm-managed hook from settings.json when removed from prsm.yaml (#5)", async () => {
+    const { readTextFile } = await import("../../src/utils/fs");
+    const settingsPath = join(tmp, ".claude/settings.json");
+
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n  pre-tool-use: hooks/safety.sh\n`);
+    await compile(tmp);
+    let settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined();
+    expect(settings.hooks.PreToolUse).toBeDefined();
+
+    // Remove pre-tool-use from prsm.yaml and rebuild — the stale hook must go.
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`);
+    await compile(tmp);
+    settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined();
+    expect(settings.hooks.PreToolUse).toBeUndefined();
+  });
+
+  it("preserves user-authored hooks for events prsm does not manage (#5)", async () => {
+    const { readTextFile } = await import("../../src/utils/fs");
+    const settingsPath = join(tmp, ".claude/settings.json");
+
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`);
+    await ensureDir(join(tmp, ".claude"));
+    // A hook under an event prsm never manages — must survive regeneration.
+    await writeTextFile(
+      settingsPath,
+      JSON.stringify({
+        hooks: { Notification: [{ matcher: "", hooks: [{ type: "command", command: "./n.sh" }] }] },
+      }),
+    );
+
+    await compile(tmp);
+    const settings = JSON.parse(await readTextFile(settingsPath));
+    expect(settings.hooks.Stop).toBeDefined(); // prsm-managed
+    expect(settings.hooks.Notification).toBeDefined(); // user-authored, preserved
   });
 
   it("pre-existing Codex skills are not deleted on prsm build", async () => {

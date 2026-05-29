@@ -1,8 +1,13 @@
-import { join } from "path";
+import { join, dirname } from "path";
 import { writeTextFile, readTextFile, ensureDir, fileExists } from "../utils/fs";
-import { trackGeneratedFile, cleanGeneratedFiles } from "../utils/generated-files";
+import {
+  trackGeneratedFile,
+  cleanGeneratedFiles,
+  readManagedHookEvents,
+  writeManagedHookEvents,
+} from "../utils/generated-files";
 import matter from "gray-matter";
-import type { RuntimeAdapter, ResolvedSkill, ResolvedAgent, WorkspaceModel } from "../types";
+import type { RuntimeAdapter, ResolvedSkill, ResolvedAgent, WorkspaceModel, OutputConfig } from "../types";
 
 const HOOK_EVENT_MAP: Record<string, string> = {
   "session-start": "SessionStart",
@@ -16,31 +21,33 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
   id = "claude-code";
   displayName = "Claude Code";
 
-  private skillOutputDir(outputBase: string): string {
-    return join(outputBase, ".claude/skills");
+  // Output paths honor prsm.yaml's `output.claude-code` block, falling back to
+  // the conventional .claude/* locations when unset (#9).
+  private skillOutputDir(outputBase: string, output?: OutputConfig): string {
+    return join(outputBase, output?.skills ?? ".claude/skills");
   }
 
-  private agentOutputDir(outputBase: string): string {
-    return join(outputBase, ".claude/agents");
+  private agentOutputDir(outputBase: string, output?: OutputConfig): string {
+    return join(outputBase, output?.agents ?? ".claude/agents");
   }
 
-  async compileSkill(skill: ResolvedSkill, outputBase: string): Promise<void> {
+  async compileSkill(skill: ResolvedSkill, outputBase: string, output?: OutputConfig): Promise<void> {
     const dirName = `hub-${skill.category}-${skill.name}`;
-    const outPath = join(this.skillOutputDir(outputBase), dirName, "SKILL.md");
+    const outPath = join(this.skillOutputDir(outputBase, output), dirName, "SKILL.md");
     const compiled = matter.stringify(skill.content, skill.frontmatter as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
   }
 
-  async compileAgent(agent: ResolvedAgent, outputBase: string): Promise<void> {
-    const outPath = join(this.agentOutputDir(outputBase), `${agent.name}.md`);
+  async compileAgent(agent: ResolvedAgent, outputBase: string, output?: OutputConfig): Promise<void> {
+    const outPath = join(this.agentOutputDir(outputBase, output), `${agent.name}.md`);
     const compiled = matter.stringify(agent.content, agent.frontmatter as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
   }
 
   async generateConfig(model: WorkspaceModel, outputBase: string): Promise<void> {
-    const settingsPath = join(outputBase, ".claude/settings.json");
+    const settingsPath = join(outputBase, model.output[this.id]?.settings ?? ".claude/settings.json");
 
     // Claude Code resolves hooks by matcher group: each event maps to an array
     // of { matcher, hooks: [{ type, command }] } entries. A flat
@@ -74,18 +81,26 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       : [];
     const mergedAllow = [...new Set([...existingAllow, ...model.permissions])];
 
+    // Drop hooks prsm wrote on the previous build before merging the current
+    // set, so a hook removed from prsm.yaml disappears from settings.json (#5).
+    // User-authored hooks for events prsm doesn't manage are left untouched.
+    const previouslyManaged = await readManagedHookEvents(outputBase, this.id);
+    const existingHooks = { ...(existing.hooks as Record<string, unknown> ?? {}) };
+    for (const event of previouslyManaged) delete existingHooks[event];
+
     const merged = {
       ...existing,
-      hooks: { ...(existing.hooks as Record<string, unknown> ?? {}), ...prsmHooks },
+      hooks: { ...existingHooks, ...prsmHooks },
       permissions: {
         ...(existing.permissions as Record<string, unknown> ?? {}),
         allow: mergedAllow,
       },
     };
 
-    await ensureDir(join(outputBase, ".claude"));
+    await ensureDir(dirname(settingsPath));
     await writeTextFile(settingsPath, JSON.stringify(merged, null, 2));
     // settings.json is a shared user file — not tracked as prsm-generated
+    await writeManagedHookEvents(outputBase, this.id, Object.keys(prsmHooks));
   }
 
   async clean(outputBase: string): Promise<void> {

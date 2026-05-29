@@ -131,8 +131,8 @@ export interface LockFile {
 export interface RuntimeAdapter {
   id: string;
   displayName: string;
-  compileSkill(skill: ResolvedSkill, outputBase: string): Promise<void>;
-  compileAgent(agent: ResolvedAgent, outputBase: string): Promise<void>;
+  compileSkill(skill: ResolvedSkill, outputBase: string, output?: OutputConfig): Promise<void>;
+  compileAgent(agent: ResolvedAgent, outputBase: string, output?: OutputConfig): Promise<void>;
   generateConfig(model: WorkspaceModel, outputBase: string): Promise<void>;
   clean(outputBase: string): Promise<void>;
 }
