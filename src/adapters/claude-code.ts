@@ -27,14 +27,14 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
   async compileSkill(skill: ResolvedSkill, outputBase: string): Promise<void> {
     const dirName = `hub-${skill.category}-${skill.name}`;
     const outPath = join(this.skillOutputDir(outputBase), dirName, "SKILL.md");
-    const compiled = matter.stringify(skill.content, skill.frontmatter as Record<string, unknown>);
+    const compiled = matter.stringify(skill.content, skill.frontmatter as unknown as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
   }
 
   async compileAgent(agent: ResolvedAgent, outputBase: string): Promise<void> {
     const outPath = join(this.agentOutputDir(outputBase), `${agent.name}.md`);
-    const compiled = matter.stringify(agent.content, agent.frontmatter as Record<string, unknown>);
+    const compiled = matter.stringify(agent.content, agent.frontmatter as unknown as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
   }
