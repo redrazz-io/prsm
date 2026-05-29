@@ -150,8 +150,10 @@ async function walkPresetClosure(
 // --- Skills-compat interop bridge (Block 2, Approach B) -------------------
 //
 // A "skills-shaped repo" is a directory with NO preset.yaml at its root but
-// WITH a skills/<category>/<name>/SKILL.md tree — i.e. a preset without the
-// manifest. prsm consumes it as an inheritance source so existing Agent Skills
+// WITH a skills/ tree of SKILL.md files — i.e. a preset without the manifest.
+// Both the canonical Agent Skills 2-level layout (skills/<name>/SKILL.md) and
+// prsm's 3-level layout (skills/<category>/<name>/SKILL.md) are recognized.
+// prsm consumes such a repo as an inheritance source so existing Agent Skills
 // repos can be reused without authoring a preset.yaml. preset.yaml ALWAYS wins
 // when both are present (existing behavior is unchanged).
 
@@ -167,19 +169,31 @@ export async function isSkillsShapedRepo(dir: string): Promise<boolean> {
 
 /**
  * Collect the SKILL.md paths (relative, POSIX) under a skills-shaped repo's
- * skills/<category>/<name>/ tree. Returns [] when there is no skills/ dir.
+ * skills/ tree. Supports BOTH layouts:
+ *   - 2-level (canonical Agent Skills):  skills/<name>/SKILL.md
+ *   - 3-level (prsm convention):         skills/<category>/<name>/SKILL.md
+ * A directory directly containing a SKILL.md is treated as a skill (2-level);
+ * its nested dirs are that skill's own supporting files, not sub-skills — so we
+ * do not descend further. Returns [] when there is no skills/ dir.
  */
 async function collectSkillsShapedFiles(dir: string): Promise<string[]> {
   const skillsDir = join(dir, "skills");
   if (!(await fileExists(skillsDir))) return [];
   const out: string[] = [];
-  const cats = await readdir(skillsDir, { withFileTypes: true });
-  for (const cat of cats) {
-    if (!cat.isDirectory()) continue;
-    const skillNames = await readdir(join(skillsDir, cat.name), { withFileTypes: true });
+  const entries = await readdir(skillsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    // 2-level: skills/<name>/SKILL.md — a dir with its own SKILL.md is a skill.
+    const direct = `skills/${entry.name}/SKILL.md`;
+    if (await fileExists(join(dir, direct))) {
+      out.push(direct);
+      continue;
+    }
+    // 3-level: skills/<category>/<name>/SKILL.md — descend one level.
+    const skillNames = await readdir(join(skillsDir, entry.name), { withFileTypes: true });
     for (const sn of skillNames) {
       if (!sn.isDirectory()) continue;
-      const rel = `skills/${cat.name}/${sn.name}/SKILL.md`;
+      const rel = `skills/${entry.name}/${sn.name}/SKILL.md`;
       if (await fileExists(join(dir, rel))) out.push(rel);
     }
   }

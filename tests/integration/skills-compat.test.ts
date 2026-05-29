@@ -162,6 +162,47 @@ describe("skills-compat interop bridge (Block 2)", () => {
     expect(await fileExists(join(tmp, ".claude/skills/hub-platform-skill-b/SKILL.md"))).toBe(true);
   });
 
+  // BR1: Anthropic's canonical Agent Skills layout is 2-level (skills/<name>/SKILL.md,
+  // no category dir). Detection must match it, not only prsm's 3-level tree.
+  it("detects the canonical 2-level skills/<name>/SKILL.md layout (BR1)", async () => {
+    const repo = join(tmp, "canonical-skills");
+    await ensureDir(join(repo, "skills/canonical-skill"));
+    await writeTextFile(
+      join(repo, "skills/canonical-skill/SKILL.md"),
+      `---\nname: canonical-skill\ndescription: A skill in the canonical 2-level layout\n---\n# Canonical Skill\n`,
+    );
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+
+    await runInstall(tmp);
+    const lock = await readLockFile(join(tmp, "prsm.lock"));
+    expect(lock!.presets[`skills:${basename(repo)}`]).toBeDefined();
+
+    await compile(tmp);
+    // No category in frontmatter → resolved category "general".
+    expect(await fileExists(join(tmp, ".claude/skills/hub-general-canonical-skill/SKILL.md"))).toBe(true);
+  });
+
+  it("supports a repo mixing 2-level and 3-level skills (BR1)", async () => {
+    const repo = join(tmp, "mixed-skills");
+    await ensureDir(join(repo, "skills/flat-skill"));
+    await ensureDir(join(repo, "skills/security/nested-skill"));
+    await writeTextFile(
+      join(repo, "skills/flat-skill/SKILL.md"),
+      `---\nname: flat-skill\ndescription: 2-level\n---\n# Flat\n`,
+    );
+    await writeTextFile(
+      join(repo, "skills/security/nested-skill/SKILL.md"),
+      `---\nname: nested-skill\ndescription: 3-level\ncategory: security\n---\n# Nested\n`,
+    );
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+
+    await runInstall(tmp);
+    await compile(tmp);
+
+    expect(await fileExists(join(tmp, ".claude/skills/hub-general-flat-skill/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-nested-skill/SKILL.md"))).toBe(true);
+  });
+
   it("compile fails when a skills-shaped repo is mutated after install (integrity holds)", async () => {
     const repo = join(tmp, "skills-repo");
     await makeSkillsShapedRepo(repo);
