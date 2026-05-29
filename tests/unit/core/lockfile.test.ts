@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { writeLockFile, readLockFile } from "../../../src/core/lockfile";
-import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readLockFile, writeLockFile } from "../../../src/core/lockfile";
 import type { LockFile } from "../../../src/types";
 
 let tmp: string;
@@ -29,8 +29,8 @@ describe("lockfile", () => {
 		await writeLockFile(join(tmp, "prsm.lock"), lock);
 		const read = await readLockFile(join(tmp, "prsm.lock"));
 		expect(read).not.toBeNull();
-		expect(read!.version).toBe(1);
-		expect(read!.presets["prsm-preset-platform-engineering"].version).toBe(
+		expect(read?.version).toBe(1);
+		expect(read?.presets["prsm-preset-platform-engineering"].version).toBe(
 			"2.0.0",
 		);
 	});

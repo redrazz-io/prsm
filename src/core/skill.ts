@@ -1,6 +1,6 @@
 import matter from "gray-matter";
 import { z } from "zod";
-import type { SkillFrontmatter, ResolvedSkill } from "../types";
+import type { ResolvedSkill, SkillFrontmatter } from "../types";
 
 const SkillDependencySchema = z.object({
 	type: z.enum(["skill", "plugin", "library"]),

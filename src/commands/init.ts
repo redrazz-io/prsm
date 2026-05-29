@@ -1,7 +1,7 @@
+import { join } from "node:path";
 import { Command } from "commander";
-import { writeTextFile, ensureDir, fileExists } from "../utils/fs";
+import { ensureDir, fileExists, writeTextFile } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
 
 const TEMPLATE_MANIFEST = (name: string) => `name: ${name}
 version: 1.0.0

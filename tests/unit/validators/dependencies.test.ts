@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { validateDependencyPresence } from "../../../src/validators/dependencies";
-import { ensureDir, writeTextFile } from "../../../src/utils/fs";
-import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ResolvedSkill } from "../../../src/types";
+import { ensureDir, writeTextFile } from "../../../src/utils/fs";
+import { validateDependencyPresence } from "../../../src/validators/dependencies";
 
 let tmp: string;
 beforeEach(async () => {

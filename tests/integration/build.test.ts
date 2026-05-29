@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { compile } from "../../src/compiler/index";
-import { writeTextFile, ensureDir, fileExists } from "../../src/utils/fs";
 import { computePresetContentHash } from "../../src/core/preset";
-import { dumpYaml } from "../../src/utils/yaml";
-import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
 import type { LockFile } from "../../src/types";
+import { ensureDir, fileExists, writeTextFile } from "../../src/utils/fs";
+import { dumpYaml } from "../../src/utils/yaml";
 
 let tmp: string;
 beforeEach(async () => {
@@ -82,7 +82,7 @@ describe("compile", () => {
 	});
 
 	it("generates .claude/settings.json when hooks are declared", async () => {
-		const manifestWithHooks = MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`;
+		const manifestWithHooks = `${MANIFEST}\nhooks:\n  stop: hooks/stop.sh\n`;
 		await writeTextFile(join(tmp, "prsm.yaml"), manifestWithHooks);
 
 		await compile(tmp);
@@ -121,7 +121,7 @@ extends:
 		};
 		await writeTextFile(
 			join(tmp, "prsm.lock"),
-			"# Auto-generated\n" + dumpYaml(lock),
+			`# Auto-generated\n${dumpYaml(lock)}`,
 		);
 
 		await compile(tmp);
@@ -161,7 +161,7 @@ extends:
 		// Tamper with the SKILL.md (the bug U4 closes)
 		await writeTextFile(
 			join(presetDir, "skills/security/preset-skill/SKILL.md"),
-			PRESET_SKILL_MD + "\nMALICIOUS APPEND\n",
+			`${PRESET_SKILL_MD}\nMALICIOUS APPEND\n`,
 		);
 
 		await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
@@ -240,7 +240,7 @@ extends:
 		};
 		await writeTextFile(
 			join(tmp, "prsm.lock"),
-			"# Auto-generated\n" + dumpYaml(lock),
+			`# Auto-generated\n${dumpYaml(lock)}`,
 		);
 
 		await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
@@ -249,7 +249,7 @@ extends:
 	it("preserves existing non-prsm settings.json keys after rebuild", async () => {
 		await writeTextFile(
 			join(tmp, "prsm.yaml"),
-			MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`,
+			`${MANIFEST}\nhooks:\n  stop: hooks/stop.sh\n`,
 		);
 		// Pre-existing user-authored settings
 		await ensureDir(join(tmp, ".claude"));
@@ -272,7 +272,7 @@ extends:
 	it("settings.json survives a second build (not deleted by clean)", async () => {
 		await writeTextFile(
 			join(tmp, "prsm.yaml"),
-			MANIFEST + `\nhooks:\n  stop: hooks/stop.sh\n`,
+			`${MANIFEST}\nhooks:\n  stop: hooks/stop.sh\n`,
 		);
 		await ensureDir(join(tmp, ".claude"));
 		await writeTextFile(
@@ -293,7 +293,7 @@ extends:
 		const presetDir = join(tmp, "presets/test-preset");
 		await ensureDir(join(presetDir, "skills/security/preset-skill"));
 		// Trailing newline — a common POSIX file convention
-		const presetYamlWithNewline = PRESET_YAML + "\n";
+		const presetYamlWithNewline = `${PRESET_YAML}\n`;
 		await writeTextFile(join(presetDir, "preset.yaml"), presetYamlWithNewline);
 		await writeTextFile(
 			join(presetDir, "skills/security/preset-skill/SKILL.md"),

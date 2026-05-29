@@ -1,10 +1,10 @@
+import { join } from "node:path";
+import chalk from "chalk";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import { listAllRepos } from "../core/repo-map";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
 import { fileExists } from "../utils/fs";
 import { logger } from "../utils/logger";
-import { join } from "path";
-import chalk from "chalk";
 
 export function diffCommand(): Command {
 	return new Command("diff")
@@ -19,7 +19,7 @@ export function diffCommand(): Command {
 			const ws = await loadWorkspace(root);
 
 			if (options.crossRepo) {
-				const repos = listAllRepos(ws.repos as any);
+				const repos = listAllRepos(ws.repos);
 				if (repos.length === 0) {
 					logger.info("No repos mapped in prsm.yaml repos: block.");
 					return;

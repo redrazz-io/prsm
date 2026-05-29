@@ -1,15 +1,15 @@
-import { join, relative, dirname } from "path";
-import { readdir } from "fs/promises";
-import { readTextFile, fileExists } from "../utils/fs";
-import { parseManifest } from "./manifest";
-import { parseSkillFile, skillToResolved } from "./skill";
-import { parseAgentFile, agentToResolved } from "./agent";
+import { readdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import type {
+	ResolvedAgent,
+	ResolvedSkill,
 	WorkspaceManifest,
 	WorkspaceModel,
-	ResolvedSkill,
-	ResolvedAgent,
 } from "../types";
+import { fileExists, readTextFile } from "../utils/fs";
+import { agentToResolved, parseAgentFile } from "./agent";
+import { parseManifest } from "./manifest";
+import { parseSkillFile, skillToResolved } from "./skill";
 
 export async function findWorkspaceRoot(from: string): Promise<string | null> {
 	let dir = from;

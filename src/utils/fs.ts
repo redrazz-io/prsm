@@ -1,6 +1,6 @@
-import { existsSync } from "fs";
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { dirname } from "path";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export async function fileExists(p: string): Promise<boolean> {
 	return existsSync(p);

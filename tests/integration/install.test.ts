@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInstall } from "../../src/commands/install";
-import { writeTextFile, ensureDir, fileExists } from "../../src/utils/fs";
-import { join } from "path";
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
+import { ensureDir, fileExists, writeTextFile } from "../../src/utils/fs";
 
 let tmp: string;
 beforeEach(async () => {

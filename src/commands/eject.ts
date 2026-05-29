@@ -1,22 +1,22 @@
+import { copyFile, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { Command } from "commander";
-import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
-import { parsePresetManifest } from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
+import { parsePresetManifest } from "../core/preset";
+import { findWorkspaceRoot, loadWorkspace } from "../core/workspace";
+import type { PresetManifest } from "../types";
 import {
-	readTextFile,
-	writeTextFile,
 	ensureDir,
 	fileExists,
+	readTextFile,
+	writeTextFile,
 } from "../utils/fs";
+import { logger } from "../utils/logger";
 import {
+	type Document,
 	parseYamlDocument,
 	stringifyYamlDocument,
-	type Document,
 } from "../utils/yaml";
-import { logger } from "../utils/logger";
-import { join, dirname } from "path";
-import { copyFile, readdir } from "fs/promises";
-import type { PresetManifest } from "../types";
 
 async function collectFilePaths(dir: string): Promise<string[]> {
 	const paths: string[] = [];

@@ -1,16 +1,11 @@
-import type {
-	WorkspaceModel,
-	ResolvedSkill,
-	ResolvedAgent,
-	ResolvedHooks,
-} from "../types";
+import type { ResolvedHooks, ResolvedSkill, WorkspaceModel } from "../types";
 
 export function mergeLayers(layers: WorkspaceModel[]): WorkspaceModel {
 	if (layers.length === 0)
 		throw new Error("mergeLayers requires at least one layer");
 
 	const base = layers[0];
-	let result: WorkspaceModel = { ...base };
+	const result: WorkspaceModel = { ...base };
 
 	for (const layer of layers.slice(1)) {
 		// Skills: last wins by name

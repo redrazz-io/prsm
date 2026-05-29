@@ -1,4 +1,4 @@
-import { parse, stringify, parseDocument, type Document } from "yaml";
+import { type Document, parse, parseDocument, stringify } from "yaml";
 
 export function parseYaml<T = unknown>(content: string): T {
 	return parse(content) as T;

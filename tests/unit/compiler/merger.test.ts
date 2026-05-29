@@ -1,6 +1,6 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { mergeLayers } from "../../../src/compiler/merger";
-import type { WorkspaceModel, ResolvedSkill } from "../../../src/types";
+import type { ResolvedSkill, WorkspaceModel } from "../../../src/types";
 
 function makeModel(skills: ResolvedSkill[]): WorkspaceModel {
 	return {
