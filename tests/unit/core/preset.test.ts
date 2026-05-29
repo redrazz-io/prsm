@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir, symlink } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { computePresetContentHash, loadPresetAsLayer, resolvePresetClosure } from "../../../src/core/preset";
+import { computePresetContentHash, loadPresetAsLayer, resolvePresetClosure, parsePresetManifest } from "../../../src/core/preset";
 
 let tmp: string;
 beforeEach(async () => {
@@ -168,6 +168,19 @@ describe("loadPresetAsLayer transitive extends", () => {
     await writeFileAt("presets/a/preset.yaml", "name: a\nversion: 1.0.0\nextends:\n  - ../b\n");
     await writeFileAt("presets/b/preset.yaml", "name: b\nversion: 1.0.0\nextends:\n  - ../a\n");
     await expect(loadPresetAsLayer(join(tmp, "presets/a"))).rejects.toThrow(/cycle/i);
+  });
+});
+
+describe("parsePresetManifest name validation", () => {
+  it("rejects a preset name containing ':' so it can't collide with the skills: namespace (BR3)", () => {
+    const yaml = `name: "skills:foo"\nversion: 1.0.0\n`;
+    expect(() => parsePresetManifest(yaml, "preset.yaml")).toThrow(/colon|':'|name/i);
+  });
+
+  it("accepts a normal preset name", () => {
+    const yaml = `name: platform-engineering\nversion: 1.0.0\n`;
+    const pm = parsePresetManifest(yaml, "preset.yaml");
+    expect(pm.name).toBe("platform-engineering");
   });
 });
 
