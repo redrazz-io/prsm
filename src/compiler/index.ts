@@ -75,11 +75,11 @@ export async function compile(workspaceRoot: string, opts: CompileOptions = {}):
           );
         }
         if (await isSkillsShapedRepo(presetDir)) {
-          const { name } = skillsShapedIdentity(presetDir);
+          const { name } = skillsShapedIdentity(presetDir, workspaceRoot);
           // Reuse the SAME integrity machinery as real presets — the synthetic
           // identity and computePresetContentHash keep the checksum gate intact.
           verifyChecksum(name, `sha256:${await computePresetContentHash(presetDir)}`);
-          layers.push(await loadSkillsShapedAsLayer(presetDir));
+          layers.push(await loadSkillsShapedAsLayer(presetDir, workspaceRoot));
           continue;
         }
         // Not skills-shaped either: fall through to the resolver, which throws

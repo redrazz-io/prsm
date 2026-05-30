@@ -165,7 +165,7 @@ export function ejectCommand(): Command {
             !(await fileExists(join(presetDir, "preset.yaml"))) &&
             (await isSkillsShapedRepo(presetDir))
           ) {
-            const { name, version } = skillsShapedIdentity(presetDir);
+            const { name, version } = skillsShapedIdentity(presetDir, root);
             flattened.push({
               dir: presetDir,
               manifest: { name, version, extends: [], skills: [], agents: [], hooks: {}, permissions: [], dependencies: {} },

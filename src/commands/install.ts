@@ -40,7 +40,7 @@ export async function runInstall(root: string, opts: InstallOptions = {}): Promi
         );
       }
       if (await isSkillsShapedRepo(presetDir)) {
-        const { name, version } = skillsShapedIdentity(presetDir);
+        const { name, version } = skillsShapedIdentity(presetDir, root);
         const count = await countSkillsShapedFiles(presetDir);
         const checksum = `sha256:${await computePresetContentHash(presetDir)}`;
         presetEntries[name] = { version, url: presetDir, checksum };
