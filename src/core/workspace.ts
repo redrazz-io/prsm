@@ -20,19 +20,42 @@ async function discoverSkillsDir(skillsDir: string, workspaceRoot: string): Prom
   const skills: ResolvedSkill[] = [];
   if (!(await fileExists(skillsDir))) return skills;
 
-  const categories = await readdir(skillsDir, { withFileTypes: true });
-  for (const cat of categories) {
-    if (!cat.isDirectory()) continue;
-    const catDir = join(skillsDir, cat.name);
-    const skillDirs = await readdir(catDir, { withFileTypes: true });
+  const addSkill = async (skillMdPath: string): Promise<void> => {
+    const content = await readTextFile(skillMdPath);
+    const relPath = relative(workspaceRoot, skillMdPath);
+    const parsed = parseSkillFile(content, relPath);
+    skills.push(skillToResolved(parsed, "local", relPath));
+  };
+
+  // Support BOTH on-disk layouts, mirroring collectSkillsShapedFiles so the
+  // local loader and the skills-shaped preset loader agree:
+  //   - 2-level (canonical Agent Skills):  skills/<name>/SKILL.md
+  //   - 3-level (prsm convention):         skills/<category>/<name>/SKILL.md
+  // This is what makes an ejected skills-shaped repo self-contained: eject
+  // copies a 2-level tree verbatim, and the local build/load path must then
+  // emit those skills (P2a). The emitted category comes from SKILL.md
+  // frontmatter (default "general"), NOT the directory name, so build output
+  // is identical regardless of which layout a skill was discovered from.
+  const topEntries = await readdir(skillsDir, { withFileTypes: true });
+  for (const top of topEntries) {
+    if (!top.isDirectory()) continue;
+    const topDir = join(skillsDir, top.name);
+
+    // 2-level: a dir with its own SKILL.md is itself a skill. Its nested dirs
+    // are that skill's supporting files, not sub-skills — do not descend.
+    const directSkillMd = join(topDir, "SKILL.md");
+    if (await fileExists(directSkillMd)) {
+      await addSkill(directSkillMd);
+      continue;
+    }
+
+    // 3-level: treat this dir as a category and descend one level.
+    const skillDirs = await readdir(topDir, { withFileTypes: true });
     for (const sd of skillDirs) {
       if (!sd.isDirectory()) continue;
-      const skillMdPath = join(catDir, sd.name, "SKILL.md");
+      const skillMdPath = join(topDir, sd.name, "SKILL.md");
       if (!(await fileExists(skillMdPath))) continue;
-      const content = await readTextFile(skillMdPath);
-      const relPath = relative(workspaceRoot, skillMdPath);
-      const parsed = parseSkillFile(content, relPath);
-      skills.push(skillToResolved(parsed, "local", relPath));
+      await addSkill(skillMdPath);
     }
   }
   return skills;
