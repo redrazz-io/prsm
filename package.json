@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Wire your AI stack once, deploy to any runtime.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/redrazz-io/prsm.git"
+  },
   "bin": {
     "prsm": "dist/cli.js"
   },
