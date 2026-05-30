@@ -206,19 +206,42 @@ async function collectSkillsShapedFiles(dir: string): Promise<string[]> {
 
 /**
  * Synthetic lockfile identity for a skills-shaped source. Such a source has no
- * preset.yaml, so no declared name/version. We derive a stable, namespaced
- * identity from the directory basename so the existing integrity machinery
- * (checksum gate, "not in prsm.lock" check) applies unchanged:
+ * preset.yaml, so no declared name/version. We derive a stable, namespaced,
+ * collision-resistant identity so the existing integrity machinery (checksum
+ * gate, "not in prsm.lock" check) applies unchanged:
  *
- *   name    = "skills:" + basename(ref)
+ *   name    = "skills:" + <workspace-root-relative POSIX path of ref>
  *   version = "0.0.0"            (no manifest version exists)
  *   checksum = computePresetContentHash(ref)  (same hash as a real preset)
  *
- * The "skills:" prefix guarantees the synthetic key can never collide with a
- * real preset.name — PresetManifestSchema rejects ':' in names (enforced).
+ * The path (not just basename(ref)) is what makes the identity unique per
+ * distinct source: two skills-shaped repos that share a leaf dir name — e.g.
+ * `../team-a/skills` and `../team-b/skills`, both basename "skills" — would
+ * otherwise derive the SAME key, so the second would overwrite the first in
+ * the lockfile and a valid multi-extends install+build would fail the checksum
+ * gate. Using the workspace-root-relative path disambiguates them while
+ * staying stable across machines whenever the workspace layout is stable
+ * (absolute paths would leak machine-specific prefixes into the lock).
+ *
+ * The relative path is normalized to POSIX separators so the identity is
+ * identical on Windows and unix. The "skills:" prefix still guarantees the
+ * synthetic key can never collide with a real preset.name —
+ * PresetManifestSchema rejects ':' in names (enforced).
+ *
+ * IMPORTANT: every caller (install, build/compile, eject) MUST pass the SAME
+ * workspaceRoot it used to resolve the ref, or the install-time key and the
+ * build-time lookup will diverge.
  */
-export function skillsShapedIdentity(dir: string): { name: string; version: string } {
-  return { name: `skills:${basename(dir)}`, version: "0.0.0" };
+export function skillsShapedIdentity(
+  dir: string,
+  workspaceRoot: string,
+): { name: string; version: string } {
+  const rel = relative(workspaceRoot, dir).split(sep).join("/");
+  // `relative` returns "" when dir === workspaceRoot; fall back to basename so
+  // the identity is never empty (defensive — a skills-shaped repo is normally a
+  // referenced dir, not the workspace root itself).
+  const id = rel === "" ? basename(dir) : rel;
+  return { name: `skills:${id}`, version: "0.0.0" };
 }
 
 /** Number of SKILL.md files a skills-shaped repo will contribute. */
@@ -232,8 +255,11 @@ export async function countSkillsShapedFiles(dir: string): Promise<number> {
  * as originDetail. There is no extends resolution, no hooks, no permissions:
  * a skills-shaped repo carries only SKILL.md files.
  */
-export async function loadSkillsShapedAsLayer(dir: string): Promise<WorkspaceModel> {
-  const { name, version } = skillsShapedIdentity(dir);
+export async function loadSkillsShapedAsLayer(
+  dir: string,
+  workspaceRoot: string,
+): Promise<WorkspaceModel> {
+  const { name, version } = skillsShapedIdentity(dir, workspaceRoot);
   const skills = [];
   for (const rel of await collectSkillsShapedFiles(dir)) {
     const p = join(dir, ...rel.split("/"));

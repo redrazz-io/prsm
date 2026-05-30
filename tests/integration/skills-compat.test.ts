@@ -203,6 +203,53 @@ describe("skills-compat interop bridge (Block 2)", () => {
     expect(await fileExists(join(tmp, ".claude/skills/hub-security-nested-skill/SKILL.md"))).toBe(true);
   });
 
+  // P2b: two distinct skills-shaped repos that share the SAME leaf dir name
+  // (e.g. team-a/skills and team-b/skills, both basename "skills") must get
+  // DISTINCT synthetic lock identities. With a basename-only identity both
+  // derived "skills:skills", the second overwrote the first in the lockfile,
+  // and a valid 2-repo multi-extends install+compile failed the checksum gate.
+  it("gives same-basename skills-shaped repos distinct lock identities (P2b)", async () => {
+    // Both leaf dirs are named "skills" — the collision trigger.
+    const repoA = join(tmp, "team-a", "skills");
+    const repoB = join(tmp, "team-b", "skills");
+    await ensureDir(join(repoA, "skills/security/alpha"));
+    await ensureDir(join(repoB, "skills/platform/beta"));
+    await writeTextFile(
+      join(repoA, "skills/security/alpha/SKILL.md"),
+      `---\nname: alpha\ndescription: From team-a\ncategory: security\n---\n# Alpha\n`,
+    );
+    await writeTextFile(
+      join(repoB, "skills/platform/beta/SKILL.md"),
+      `---\nname: beta\ndescription: From team-b\ncategory: platform\n---\n# Beta\n`,
+    );
+    await writeTextFile(
+      join(tmp, "prsm.yaml"),
+      `name: test-ws\nversion: 1.0.0\nruntimes:\n  - claude-code\nextends:\n  - ${repoA}\n  - ${repoB}\n`,
+    );
+
+    await runInstall(tmp);
+
+    const lock = await readLockFile(join(tmp, "prsm.lock"));
+    expect(lock).not.toBeNull();
+    const keys = Object.keys(lock!.presets).filter((k) => k.startsWith("skills:"));
+    // Two distinct synthetic entries, NOT one collapsed entry.
+    expect(keys.length).toBe(2);
+    expect(new Set(keys).size).toBe(2);
+    // Identities are disambiguated by the workspace-root-relative path.
+    expect(lock!.presets["skills:team-a/skills"]).toBeDefined();
+    expect(lock!.presets["skills:team-b/skills"]).toBeDefined();
+    // And they have different checksums (different content).
+    expect(lock!.presets["skills:team-a/skills"].checksum).not.toBe(
+      lock!.presets["skills:team-b/skills"].checksum,
+    );
+
+    // The whole point: compile must round-trip WITHOUT a checksum mismatch and
+    // emit BOTH repos' skills (the bug failed here before the fix).
+    await compile(tmp);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-alpha/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-beta/SKILL.md"))).toBe(true);
+  });
+
   it("compile fails when a skills-shaped repo is mutated after install (integrity holds)", async () => {
     const repo = join(tmp, "skills-repo");
     await makeSkillsShapedRepo(repo);
