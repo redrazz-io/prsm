@@ -5,6 +5,7 @@ import { join } from "path";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { spawn } from "child_process";
+import { compile } from "../../src/compiler/index";
 
 let tmp: string;
 beforeEach(async () => { tmp = await mkdtemp(join(tmpdir(), "prsm-eject-")); });
@@ -431,6 +432,44 @@ extends:
     expect(await fileExists(join(tmp, "skills/security/from-skills/SKILL.md"))).toBe(true);
     const after = parseYaml<{ extends: string[] }>(await readTextFile(join(tmp, "prsm.yaml")));
     expect(after.extends).toEqual([]);
+  });
+
+  it("ejecting a 2-level skills-shaped repo leaves a self-contained workspace that builds (P2a)", async () => {
+    // A skills-shaped repo can use the canonical 2-level layout
+    // (skills/<name>/SKILL.md, no category dir). eject copies skills/ verbatim,
+    // so the ejected workspace ends up with a 2-level local tree. The local
+    // loader used to discover ONLY 3-level skills/<cat>/<name>/SKILL.md, so the
+    // ejected skill was silently dropped at the next build — the workspace was
+    // NOT self-contained. The loader now reads both layouts.
+    const repo = join(tmp, "flat-skills-repo");
+    await ensureDir(join(repo, "skills/flat-skill"));
+    await writeTextFile(
+      join(repo, "skills/flat-skill/SKILL.md"),
+      `---\nname: flat-skill\ndescription: a 2-level skills-shaped skill\n---\n# flat-skill\n`,
+    );
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${repo}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).toBe(0);
+    if (code !== 0) console.error(stderr);
+
+    // The 2-level tree is copied verbatim and extends is emptied.
+    expect(await fileExists(join(tmp, "skills/flat-skill/SKILL.md"))).toBe(true);
+    const after = parseYaml<{ extends: string[] }>(await readTextFile(join(tmp, "prsm.yaml")));
+    expect(after.extends).toEqual([]);
+
+    // The real assertion: a plain local build (no extends, no lockfile) must
+    // emit the ejected skill — proving the workspace is genuinely self-contained.
+    await compile(tmp);
+    // No category in frontmatter → resolved category "general".
+    expect(await fileExists(join(tmp, ".claude/skills/hub-general-flat-skill/SKILL.md"))).toBe(true);
   });
 
   it("removes ejected presets from extends list", async () => {
