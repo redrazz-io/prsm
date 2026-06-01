@@ -250,6 +250,38 @@ describe("skills-compat interop bridge (Block 2)", () => {
     expect(await fileExists(join(tmp, ".claude/skills/hub-platform-beta/SKILL.md"))).toBe(true);
   });
 
+  // P2 transitive bridge: a real preset (with preset.yaml) extends a
+  // skills-shaped repo. extends: inheritance is transitive, so the bridge must
+  // work below the top level — install must not die with "preset.yaml not
+  // found", and build must emit the transitively-inherited skills.
+  it("bridges a skills-shaped repo extended transitively by a real preset (P2 transitive)", async () => {
+    // workspace → team-preset (real) → ../vendor-skills (skills-shaped)
+    const vendor = join(tmp, "vendor-skills");
+    await makeSkillsShapedRepo(vendor); // 3-level: security/skill-a, platform/skill-b
+
+    const teamPreset = join(tmp, "team-preset");
+    await ensureDir(teamPreset);
+    await writeTextFile(
+      join(teamPreset, "preset.yaml"),
+      `name: team-preset\nversion: 1.0.0\nextends:\n  - ../vendor-skills\nskills: []\nagents: []\nhooks: {}\npermissions: []\n`,
+    );
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(teamPreset));
+
+    // Must NOT throw "preset.yaml not found" on the transitive skills-shaped ref.
+    await runInstall(tmp);
+
+    const lock = await readLockFile(join(tmp, "prsm.lock"));
+    expect(lock!.presets["team-preset"]).toBeDefined();
+    // The skills-shaped repo is locked under its synthetic, root-relative identity.
+    expect(lock!.presets["skills:vendor-skills"]).toBeDefined();
+    expect(lock!.presets["skills:vendor-skills"].version).toBe("0.0.0");
+
+    // Build must emit the skills inherited THROUGH the real preset.
+    await compile(tmp);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-skill-a/SKILL.md"))).toBe(true);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-platform-skill-b/SKILL.md"))).toBe(true);
+  });
+
   it("compile fails when a skills-shaped repo is mutated after install (integrity holds)", async () => {
     const repo = join(tmp, "skills-repo");
     await makeSkillsShapedRepo(repo);

@@ -213,4 +213,20 @@ describe("resolvePresetClosure", () => {
     await writeFileAt("presets/b/preset.yaml", "name: b\nversion: 1.0.0\nextends:\n  - ../a\n");
     await expect(resolvePresetClosure(join(tmp, "presets/a"))).rejects.toThrow(/cycle/i);
   });
+
+  it("includes a transitively-extended skills-shaped repo as a synthetic node (P2 transitive bridge)", async () => {
+    // A real preset extends a skills-shaped repo (no preset.yaml, just skills/).
+    // The recursive walker must NOT throw "preset.yaml not found" — it must
+    // include the skills-shaped repo in the closure as a synthetic node so the
+    // bridge works transitively, not only for top-level workspace refs.
+    await writeFileAt("presets/team/preset.yaml", "name: team\nversion: 1.0.0\nextends:\n  - ../../vendor/skills\n");
+    await writeFileAt("vendor/skills/skills/cat/foo/SKILL.md", SKILL("foo"));
+
+    const closure = await resolvePresetClosure(join(tmp, "presets/team"), tmp);
+    // Dependency-first: the skills-shaped repo (lower precedence) before team.
+    expect(closure.map((p) => p.manifest.name)).toEqual(["skills:vendor/skills", "team"]);
+    const synth = closure.find((p) => p.skillsShaped);
+    expect(synth?.manifest.name).toBe("skills:vendor/skills");
+    expect(synth?.manifest.version).toBe("0.0.0");
+  });
 });

@@ -97,6 +97,16 @@ export function parsePresetManifest(content: string, sourcePath: string): Preset
 export interface ResolvedPreset {
   dir: string;
   manifest: PresetManifest;
+  /**
+   * True when this node is a skills-shaped repo (no preset.yaml) bridged into
+   * the closure with a synthetic manifest (Block 2). Consumers that load layers
+   * (loadPresetAsLayer) must read it via loadSkillsShapedAsLayer rather than the
+   * 3-level-only loadOwnPresetLayer, because skills-shaped repos also use the
+   * canonical 2-level layout. Consumers that only checksum/lock/copy the dir
+   * (install, build verify, eject) need no branch — the synthetic name/version
+   * and on-disk skills/ tree carry everything they read.
+   */
+  skillsShaped?: boolean;
 }
 
 /**
@@ -110,16 +120,28 @@ export interface ResolvedPreset {
  * (materialize every preset), and loadPresetAsLayer (merge every preset). Each
  * `extends` ref is resolved relative to the preset that declares it, so
  * `../base` means "sibling of the current preset".
+ *
+ * A transitively-extended ref with no preset.yaml is bridged as a skills-shaped
+ * repo (Block 2), so the interop bridge works below the top level — not only
+ * for direct workspace refs. `workspaceRoot` is used solely to derive the
+ * skills-shaped synthetic identity (skills:<root-relative path>); it must be the
+ * same workspace root every caller resolved the refs against, or the
+ * install-time lock key and build-time lookup will diverge. It defaults to
+ * presetDir for callers that never extend a skills-shaped repo.
  */
-export async function resolvePresetClosure(presetDir: string): Promise<ResolvedPreset[]> {
+export async function resolvePresetClosure(
+  presetDir: string,
+  workspaceRoot: string = presetDir,
+): Promise<ResolvedPreset[]> {
   const out: ResolvedPreset[] = [];
   const added = new Set<string>(); // canonical dirs already in `out` (dedup)
-  await walkPresetClosure(presetDir, new Set(), out, added);
+  await walkPresetClosure(presetDir, workspaceRoot, new Set(), out, added);
   return out;
 }
 
 async function walkPresetClosure(
   presetDir: string,
+  workspaceRoot: string,
   branch: Set<string>, // canonical dirs along the current branch (cycle detection)
   out: ResolvedPreset[],
   added: Set<string>,
@@ -134,6 +156,18 @@ async function walkPresetClosure(
 
   const presetYamlPath = join(presetDir, "preset.yaml");
   if (!(await fileExists(presetYamlPath))) {
+    // No preset.yaml. preset.yaml ALWAYS wins, so we only reach here when the
+    // ref genuinely lacks one. If it is a skills-shaped repo, bridge it into the
+    // closure as a synthetic, manifest-less node (a leaf — it has no extends) so
+    // transitive extends: into a skills-shaped repo works exactly like a direct
+    // one. Otherwise, the original clear error stands.
+    if (await isSkillsShapedRepo(presetDir)) {
+      if (!added.has(canonical)) {
+        added.add(canonical);
+        out.push(skillsShapedResolved(presetDir, workspaceRoot));
+      }
+      return;
+    }
     throw new Error(`preset.yaml not found in ${presetDir}`);
   }
   const manifest = parsePresetManifest(await readTextFile(presetYamlPath), presetYamlPath);
@@ -142,7 +176,7 @@ async function walkPresetClosure(
   const nextBranch = new Set(branch);
   nextBranch.add(canonical);
   for (const ref of manifest.extends ?? []) {
-    await walkPresetClosure(resolve(presetDir, ref), nextBranch, out, added);
+    await walkPresetClosure(resolve(presetDir, ref), workspaceRoot, nextBranch, out, added);
   }
 
   if (!added.has(canonical)) {
@@ -250,6 +284,22 @@ export async function countSkillsShapedFiles(dir: string): Promise<number> {
 }
 
 /**
+ * Build the synthetic, manifest-less ResolvedPreset for a skills-shaped source.
+ * The manifest is intentionally empty (no extends/skills/agents/hooks/permissions/
+ * dependencies) so the source contributes only its on-disk skills/ tree and adds
+ * nothing to the merged hooks/permissions/deps. Shared by the closure walker
+ * (transitive refs) and eject (direct refs) so both produce the identical shape.
+ */
+export function skillsShapedResolved(dir: string, workspaceRoot: string): ResolvedPreset {
+  const { name, version } = skillsShapedIdentity(dir, workspaceRoot);
+  return {
+    dir,
+    skillsShaped: true,
+    manifest: { name, version, extends: [], skills: [], agents: [], hooks: {}, permissions: [], dependencies: {} },
+  };
+}
+
+/**
  * Load a skills-shaped repo as a build layer — the no-manifest counterpart to
  * loadPresetAsLayer. Skills are tagged origin "preset" with the synthetic name
  * as originDetail. There is no extends resolution, no hooks, no permissions:
@@ -279,11 +329,22 @@ export async function loadSkillsShapedAsLayer(
   };
 }
 
-export async function loadPresetAsLayer(presetDir: string): Promise<WorkspaceModel> {
-  const closure = await resolvePresetClosure(presetDir);
+export async function loadPresetAsLayer(
+  presetDir: string,
+  workspaceRoot: string = presetDir,
+): Promise<WorkspaceModel> {
+  const closure = await resolvePresetClosure(presetDir, workspaceRoot);
   const layers: WorkspaceModel[] = [];
   for (const p of closure) {
-    layers.push(await loadOwnPresetLayer(p.dir, p.manifest));
+    // A skills-shaped node has no real manifest and may use the 2-level layout,
+    // which loadOwnPresetLayer (3-level only) would silently drop — load it via
+    // the skills-shaped loader instead. Same workspaceRoot keeps the layer's
+    // synthetic origin identity consistent with the lock key.
+    layers.push(
+      p.skillsShaped
+        ? await loadSkillsShapedAsLayer(p.dir, workspaceRoot)
+        : await loadOwnPresetLayer(p.dir, p.manifest),
+    );
   }
   return layers.length === 1 ? layers[0] : mergeLayers(layers);
 }
