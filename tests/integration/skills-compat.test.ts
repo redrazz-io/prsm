@@ -4,7 +4,7 @@ import { compile } from "../../src/compiler/index";
 import { readLockFile } from "../../src/core/lockfile";
 import { writeTextFile, ensureDir, fileExists } from "../../src/utils/fs";
 import { join, basename } from "path";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 
 let tmp: string;
@@ -377,6 +377,28 @@ describe("skills-compat interop bridge (Block 2)", () => {
 
     // Mutating a support file must trip the gate.
     await writeTextFile(join(repo, "skills/security/scanner/run.sh"), "v2 tampered\n");
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
+  });
+
+  // Stop-gate: the checksum must cover BINARY support files by raw bytes. Reading
+  // them as utf-8 + normalizing newlines is lossy — distinct byte sequences (e.g.
+  // 0xFF vs 0xFE, both invalid utf-8 → U+FFFD) would collapse to the same string
+  // and the changed asset would slip past the gate.
+  it("skills-shaped checksum detects byte changes to a BINARY support file", async () => {
+    const repo = join(tmp, "skills-repo");
+    await ensureDir(join(repo, "skills/security/scanner"));
+    await writeTextFile(
+      join(repo, "skills/security/scanner/SKILL.md"),
+      `---\nname: scanner\ndescription: scans\ncategory: security\n---\n# Scanner\n`,
+    );
+    // Binary asset with a NUL byte and an invalid-utf-8 byte.
+    await writeFile(join(repo, "skills/security/scanner/logo.bin"), Buffer.from([0x00, 0xff, 0x10]));
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+    await runInstall(tmp);
+
+    // Flip one byte (0xFF → 0xFE) — invisible to lossy utf-8 decode + newline
+    // normalization, but a real change to the emitted asset.
+    await writeFile(join(repo, "skills/security/scanner/logo.bin"), Buffer.from([0x00, 0xfe, 0x10]));
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
 
