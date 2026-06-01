@@ -282,6 +282,33 @@ describe("skills-compat interop bridge (Block 2)", () => {
     expect(await fileExists(join(tmp, ".claude/skills/hub-platform-skill-b/SKILL.md"))).toBe(true);
   });
 
+  // --strict-preset must reject a manifest-less ref ANYWHERE in the closure, not
+  // just at the top level — otherwise a real preset can smuggle a skills-shaped
+  // repo past the flag, contradicting "fail on any extends: ref lacking
+  // preset.yaml" (Codex PR #14 follow-up).
+  async function makeTransitiveSkillsShapedWorkspace(): Promise<void> {
+    const vendor = join(tmp, "vendor-skills");
+    await makeSkillsShapedRepo(vendor);
+    const teamPreset = join(tmp, "team-preset");
+    await ensureDir(teamPreset);
+    await writeTextFile(
+      join(teamPreset, "preset.yaml"),
+      `name: team-preset\nversion: 1.0.0\nextends:\n  - ../vendor-skills\nskills: []\nagents: []\nhooks: {}\npermissions: []\n`,
+    );
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(teamPreset));
+  }
+
+  it("install --strict-preset rejects a TRANSITIVE skills-shaped ref", async () => {
+    await makeTransitiveSkillsShapedWorkspace();
+    await expect(runInstall(tmp, { strictPreset: true })).rejects.toThrow(/preset\.yaml/);
+  });
+
+  it("build --strict-preset rejects a TRANSITIVE skills-shaped ref", async () => {
+    await makeTransitiveSkillsShapedWorkspace();
+    await runInstall(tmp); // lock it normally first
+    await expect(compile(tmp, { strictPreset: true })).rejects.toThrow(/preset\.yaml/);
+  });
+
   it("compile fails when a skills-shaped repo is mutated after install (integrity holds)", async () => {
     const repo = join(tmp, "skills-repo");
     await makeSkillsShapedRepo(repo);
