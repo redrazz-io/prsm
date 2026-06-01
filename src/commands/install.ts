@@ -1,8 +1,9 @@
 import { Command } from "commander";
 import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import {
-  computePresetContentHash,
+  computeSkillsShapedContentHash,
   resolvePresetClosure,
+  resolvedPresetChecksum,
   isSkillsShapedRepo,
   skillsShapedIdentity,
   countSkillsShapedFiles,
@@ -42,7 +43,7 @@ export async function runInstall(root: string, opts: InstallOptions = {}): Promi
       if (await isSkillsShapedRepo(presetDir)) {
         const { name, version } = skillsShapedIdentity(presetDir, root);
         const count = await countSkillsShapedFiles(presetDir);
-        const checksum = `sha256:${await computePresetContentHash(presetDir)}`;
+        const checksum = `sha256:${await computeSkillsShapedContentHash(presetDir)}`;
         presetEntries[name] = { version, url: presetDir, checksum };
         logger.info(
           `→ Detected skills-shaped repo; installing ${count} SKILL.md file${count === 1 ? "" : "s"} from skills/. ` +
@@ -58,9 +59,9 @@ export async function runInstall(root: string, opts: InstallOptions = {}): Promi
     // Lock the full transitive closure of every direct extends, not just the
     // direct presets — otherwise a mutated transitive preset slips past the
     // checksum gate at build time (Codex #1).
-    for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir, root, { strictPreset: opts.strictPreset })) {
-      const checksum = `sha256:${await computePresetContentHash(dir)}`;
-      presetEntries[pm.name] = { version: pm.version, url: dir, checksum };
+    for (const node of await resolvePresetClosure(presetDir, root, { strictPreset: opts.strictPreset })) {
+      const { dir, manifest: pm } = node;
+      presetEntries[pm.name] = { version: pm.version, url: dir, checksum: await resolvedPresetChecksum(node) };
       logger.success(`Resolved ${pm.name}@${pm.version}`);
     }
   }

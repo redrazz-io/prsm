@@ -1,8 +1,23 @@
-import { join } from "path";
+import { join, dirname } from "path";
+import { copyFile } from "fs/promises";
 import { fileExists, readTextFile, writeTextFile, ensureDir } from "./fs";
 
 function manifestPath(outputBase: string, adapterId: string): string {
   return join(outputBase, `.prsm/generated-files-${adapterId}.json`);
+}
+
+/** Copy a source file to `dest` (creating parent dirs) and track it as
+ *  prsm-generated so `clean()` removes it. Used to emit a skill's support
+ *  files alongside its SKILL.md. */
+export async function copyTrackedFile(
+  outputBase: string,
+  adapterId: string,
+  src: string,
+  dest: string,
+): Promise<void> {
+  await ensureDir(dirname(dest));
+  await copyFile(src, dest);
+  await trackGeneratedFile(outputBase, adapterId, dest);
 }
 
 export async function trackGeneratedFile(outputBase: string, adapterId: string, path: string): Promise<void> {

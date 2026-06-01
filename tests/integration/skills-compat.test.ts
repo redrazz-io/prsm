@@ -320,4 +320,82 @@ describe("skills-compat interop bridge (Block 2)", () => {
 
     await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
   });
+
+  // #1: a skill is a directory, not just SKILL.md. Sibling scripts/templates/
+  // assets must reach the runtime output, or a skill that references its bundled
+  // files installs+builds cleanly but breaks at use time (Codex adversarial #1).
+  it("emits a skill's support files from a skills-shaped repo (Codex adversarial #1)", async () => {
+    const repo = join(tmp, "skills-repo");
+    await ensureDir(join(repo, "skills/security/scanner/templates"));
+    await writeTextFile(
+      join(repo, "skills/security/scanner/SKILL.md"),
+      `---\nname: scanner\ndescription: scans\ncategory: security\n---\n# Scanner\nRuns ./run.sh\n`,
+    );
+    await writeTextFile(join(repo, "skills/security/scanner/run.sh"), "#!/bin/bash\necho scan\n");
+    await writeTextFile(join(repo, "skills/security/scanner/templates/report.md"), "# Report\n");
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+
+    await runInstall(tmp);
+    await compile(tmp);
+
+    const outDir = join(tmp, ".claude/skills/hub-security-scanner");
+    expect(await fileExists(join(outDir, "SKILL.md"))).toBe(true);
+    expect(await fileExists(join(outDir, "run.sh"))).toBe(true);
+    expect(await fileExists(join(outDir, "templates/report.md"))).toBe(true);
+  });
+
+  // #2: the skills-shaped checksum must cover only build-relevant files (skills/**
+  // + support files), not the whole referenced repo — otherwise benign changes to
+  // .git/README/tests spuriously trip the build gate (Codex adversarial #2).
+  it("skills-shaped checksum ignores non-build repo files (Codex adversarial #2)", async () => {
+    const repo = join(tmp, "skills-repo");
+    await makeSkillsShapedRepo(repo);
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+    await runInstall(tmp);
+
+    // Mutate files that do NOT affect build output.
+    await writeTextFile(join(repo, "README.md"), "# totally different\n");
+    await ensureDir(join(repo, ".git"));
+    await writeTextFile(join(repo, ".git/HEAD"), "ref: refs/heads/elsewhere\n");
+    await writeTextFile(join(repo, "tests/thing.test.ts"), "// noise\n");
+
+    // Build must NOT trip the checksum gate.
+    await compile(tmp);
+    expect(await fileExists(join(tmp, ".claude/skills/hub-security-skill-a/SKILL.md"))).toBe(true);
+  });
+
+  it("skills-shaped checksum DOES cover a skill's support files", async () => {
+    const repo = join(tmp, "skills-repo");
+    await ensureDir(join(repo, "skills/security/scanner"));
+    await writeTextFile(
+      join(repo, "skills/security/scanner/SKILL.md"),
+      `---\nname: scanner\ndescription: scans\ncategory: security\n---\n# Scanner\n`,
+    );
+    await writeTextFile(join(repo, "skills/security/scanner/run.sh"), "v1\n");
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+    await runInstall(tmp);
+
+    // Mutating a support file must trip the gate.
+    await writeTextFile(join(repo, "skills/security/scanner/run.sh"), "v2 tampered\n");
+    await expect(compile(tmp)).rejects.toThrow("checksum mismatch");
+  });
+
+  // #3: a top dir with BOTH its own SKILL.md and nested skill dirs is ambiguous —
+  // the old short-circuit silently dropped the nested skills. Fail loudly instead
+  // (Codex adversarial #3).
+  it("fails on an ambiguous mixed 2-level/3-level layout (Codex adversarial #3)", async () => {
+    const repo = join(tmp, "skills-repo");
+    await ensureDir(join(repo, "skills/security/nested"));
+    await writeTextFile(
+      join(repo, "skills/security/SKILL.md"),
+      `---\nname: security\ndescription: direct\n---\n# direct\n`,
+    );
+    await writeTextFile(
+      join(repo, "skills/security/nested/SKILL.md"),
+      `---\nname: nested\ndescription: nested\n---\n# nested\n`,
+    );
+    await writeTextFile(join(tmp, "prsm.yaml"), manifestExtending(repo));
+
+    await expect(runInstall(tmp)).rejects.toThrow(/ambiguous|layout/i);
+  });
 });

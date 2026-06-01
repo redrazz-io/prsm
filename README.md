@@ -25,8 +25,11 @@ that authors, composes, and refracts those skills across runtimes.
 Because of that layering, prsm can **consume** an existing skills repo directly. If you
 point `extends:` at a directory that has no `preset.yaml` but does have a `skills/` tree,
 prsm treats it as a "skills-shaped repo" — a preset without the manifest — and installs
-its `SKILL.md` files. Both the canonical Agent Skills layout (`skills/<name>/SKILL.md`)
-and prsm's categorized layout (`skills/<category>/<name>/SKILL.md`) are recognized:
+its skills. A skill is a **directory**, not just a file: prsm emits each `SKILL.md`
+together with every sibling file under it (scripts, templates, assets), so a skill that
+references its bundled files keeps working in the runtime output. Both the canonical Agent
+Skills layout (`skills/<name>/SKILL.md`) and prsm's categorized layout
+(`skills/<category>/<name>/SKILL.md`) are recognized:
 
 ```yaml
 # prsm.yaml
@@ -39,9 +42,11 @@ extends:
 ```
 
 The same content-hash integrity gate applies: the skills-shaped source is locked in
-`prsm.lock` and verified at build time, so a mutated skill is caught just like a mutated
-preset. When a directory has **both** `preset.yaml` and `skills/`, the `preset.yaml` path
-always wins.
+`prsm.lock` and verified at build time, so a mutated skill (or one of its support files)
+is caught just like a mutated preset. The hash covers only the build-relevant files —
+each skill's `SKILL.md` plus its support files — so benign repo noise (`.git/`, READMEs,
+tests) never trips the gate. When a directory has **both** `preset.yaml` and `skills/`,
+the `preset.yaml` path always wins.
 
 For CI or locked-down setups where every source must carry an explicit manifest, pass
 `--strict-preset` to `prsm install` or `prsm build` and prsm will fail fast on any

@@ -25,6 +25,7 @@ function makeSkill(name: string, origin: "local" | "preset"): ResolvedSkill {
     sourcePath: `skills/test/${name}/SKILL.md`,
     origin,
     originDetail: origin,
+    supportFiles: [],
   };
 }
 

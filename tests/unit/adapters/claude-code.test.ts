@@ -24,6 +24,7 @@ const skill: ResolvedSkill = {
   sourcePath: "skills/platform/copilot/SKILL.md",
   origin: "local",
   originDetail: "local",
+  supportFiles: [],
 };
 
 const agent: ResolvedAgent = {

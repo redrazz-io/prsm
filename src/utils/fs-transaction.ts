@@ -18,9 +18,17 @@ import { dirname, join } from "path";
  * prsm.yaml/prsm.lock still point at the old state — breaking the advertised
  * "no changes made" guarantee for execute-phase failures (Codex adversarial #1).
  *
- * Rollback is best-effort: each undo step is independently guarded so one
+ * Scope of the guarantee (deliberately narrow): rollback recovers from *handled*
+ * filesystem errors — a thrown/rejected operation that the caller catches and
+ * routes to `rollback()`. It is NOT interrupt- or crash-safe: a SIGKILL, a
+ * SIGINT the caller does not trap, a power loss, or a crash mid-copy exits
+ * without unwinding the in-memory journal, and can leave partial state. True
+ * crash-safety would require staging into temp paths + atomic renames or a
+ * persisted journal with next-run recovery — out of scope here.
+ *
+ * Rollback is also best-effort: each undo step is independently guarded so one
  * failing step cannot abort the rest. We never claim atomicity at the syscall
- * level — only that a clean failure leaves the workspace as it was found.
+ * level — only that a *cleanly-handled* failure leaves the workspace as found.
  */
 type UndoOp =
   | { kind: "deleteFile"; path: string }
