@@ -2,3 +2,6 @@ node_modules/
 dist/
 .prsm/
 *.lock.bak
+
+# Local agent/editor config (not part of the package)
+.claude/
