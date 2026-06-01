@@ -7,15 +7,16 @@ import {
   type ResolvedPreset,
 } from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
-import { readTextFile, writeTextFile, ensureDir, fileExists } from "../utils/fs";
+import { readTextFile, fileExists } from "../utils/fs";
+import { FsTransaction } from "../utils/fs-transaction";
 import {
   parseYamlDocument,
   stringifyYamlDocument,
   type Document,
 } from "../utils/yaml";
 import { logger } from "../utils/logger";
-import { join, dirname, resolve } from "path";
-import { copyFile, readdir } from "fs/promises";
+import { join, resolve } from "path";
+import { readdir } from "fs/promises";
 import type { PresetManifest } from "../types";
 
 async function collectFilePaths(dir: string): Promise<string[]> {
@@ -30,21 +31,6 @@ async function collectFilePaths(dir: string): Promise<string[]> {
     }
   }
   return paths;
-}
-
-async function copyDir(src: string, dest: string): Promise<void> {
-  await ensureDir(dest);
-  const entries = await readdir(src, { withFileTypes: true });
-  for (const e of entries) {
-    const srcPath = join(src, e.name);
-    const destPath = join(dest, e.name);
-    if (e.isDirectory()) {
-      await copyDir(srcPath, destPath);
-    } else {
-      await ensureDir(dirname(destPath));
-      await copyFile(srcPath, destPath);
-    }
-  }
 }
 
 /**
@@ -239,34 +225,52 @@ export function ejectCommand(): Command {
       }
 
       // ── EXECUTE ────────────────────────────────────────────────────────
-      // Pure file writes from here on. No operation in this block can fail on
-      // bad input — all validation already passed in preflight.
-
-      // Copy every preset in the closure, dependency-first — so a
-      // higher-precedence preset's files overwrite inherited ones on collision,
-      // matching the build-time merge order.
-      for (const { dir, manifest: pm } of closurePresets) {
-        logger.info(`Ejecting ${pm.name}@${pm.version}...`);
-        for (const subdir of ["skills", "agents", "hooks"]) {
-          const srcDir = join(dir, subdir);
-          if (await fileExists(srcDir)) {
-            await copyDir(srcDir, join(root, subdir));
-            logger.success(`  Copied ${subdir}/`);
+      // Validation already passed in preflight, but the writes here are still
+      // several sequential, individually-fallible filesystem mutations (copy N
+      // trees, rewrite prsm.yaml, rewrite prsm.lock). A failure partway through
+      // — ENOSPC, permission denied, a parent path that is unexpectedly a file,
+      // an interrupt — would otherwise leave copied files on disk while
+      // prsm.yaml/prsm.lock still point at the old state. Route every mutation
+      // through a journaled transaction so ANY execute-phase failure rolls the
+      // workspace back to exactly its pre-eject state, extending the "no changes
+      // made" guarantee beyond preflight (Codex adversarial #1).
+      const tx = new FsTransaction();
+      try {
+        // Copy every preset in the closure, dependency-first — so a
+        // higher-precedence preset's files overwrite inherited ones on collision,
+        // matching the build-time merge order.
+        for (const { dir, manifest: pm } of closurePresets) {
+          logger.info(`Ejecting ${pm.name}@${pm.version}...`);
+          for (const subdir of ["skills", "agents", "hooks"]) {
+            const srcDir = join(dir, subdir);
+            if (await fileExists(srcDir)) {
+              await tx.copyDirInto(srcDir, join(root, subdir));
+              logger.success(`  Copied ${subdir}/`);
+            }
           }
         }
-      }
 
-      await writeTextFile(join(root, "prsm.yaml"), serialized);
+        await tx.writeFile(join(root, "prsm.yaml"), serialized);
 
-      // Update lockfile
-      const lock = await readLockFile(join(root, "prsm.lock"));
-      if (lock) {
-        for (const ref of toEject) {
-          for (const [name] of Object.entries(lock.presets)) {
-            if (ref.includes(name)) delete lock.presets[name];
+        // Update lockfile. Guard it (snapshot pre-state) before letting the
+        // canonical writeLockFile serializer mutate it, so rollback restores the
+        // original lock — or removes it if there was none.
+        const lock = await readLockFile(join(root, "prsm.lock"));
+        if (lock) {
+          for (const ref of toEject) {
+            for (const [name] of Object.entries(lock.presets)) {
+              if (ref.includes(name)) delete lock.presets[name];
+            }
           }
+          await tx.guard(join(root, "prsm.lock"));
+          await writeLockFile(join(root, "prsm.lock"), lock);
         }
-        await writeLockFile(join(root, "prsm.lock"), lock);
+      } catch (err) {
+        await tx.rollback();
+        logger.error(
+          `${String(err)}\nEject failed mid-write — workspace rolled back, no changes made.`,
+        );
+        process.exit(1);
       }
 
       logger.success(`Ejected ${toEject.length} preset(s). Workspace is now self-contained.`);

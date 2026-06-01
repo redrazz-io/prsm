@@ -303,6 +303,88 @@ extends:
     expect(await readTextFile(join(tmp, "prsm.yaml"))).toBe(before);
   });
 
+  it("rolls back copied files when a later preset's copy fails mid-execute (Codex adversarial #1)", async () => {
+    // Both presets parse cleanly (so preflight passes), but preset B's copy is
+    // forced to fail during EXECUTE: the workspace has `skills/dog` as a FILE,
+    // so creating `skills/dog/b/` (for B's skill) hits ENOTDIR. Preset A's skill
+    // copies first; the transaction must roll it back so no partial state remains.
+    const presetA = join(tmp, "presets/preset-a");
+    const presetB = join(tmp, "presets/preset-b");
+    await setupPreset(presetA, {});
+    await setupPreset(presetB, {});
+    await ensureDir(join(presetA, "skills/cat/a"));
+    await writeTextFile(
+      join(presetA, "skills/cat/a/SKILL.md"),
+      `---\nname: a\ndescription: from a\ncategory: cat\n---\n# a\n`,
+    );
+    await ensureDir(join(presetB, "skills/dog/b"));
+    await writeTextFile(
+      join(presetB, "skills/dog/b/SKILL.md"),
+      `---\nname: b\ndescription: from b\ncategory: dog\n---\n# b\n`,
+    );
+
+    // Land mine: skills/dog is a regular file, so B's mkdir(skills/dog/b) fails.
+    await ensureDir(join(tmp, "skills"));
+    await writeTextFile(join(tmp, "skills/dog"), "not a directory\n");
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetA}
+  - ${presetB}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    const before = await readTextFile(join(tmp, "prsm.yaml"));
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("rolled back");
+
+    // Preset A's already-copied skill (and the dirs created for it) are gone.
+    expect(await fileExists(join(tmp, "skills/cat/a/SKILL.md"))).toBe(false);
+    expect(await fileExists(join(tmp, "skills/cat"))).toBe(false);
+    // The pre-existing land-mine file is untouched (we did not create it).
+    expect(await fileExists(join(tmp, "skills/dog"))).toBe(true);
+    // prsm.yaml is unchanged — extends still lists both presets.
+    expect(await readTextFile(join(tmp, "prsm.yaml"))).toBe(before);
+  });
+
+  it("restores prsm.yaml when the write phase fails AFTER the manifest is rewritten (Codex adversarial #1)", async () => {
+    // The skill copies and the prsm.yaml rewrite succeed, then the lockfile step
+    // fails (prsm.lock is a directory → read throws). Rollback must undo BOTH the
+    // copies AND the manifest rewrite, leaving the workspace exactly as found.
+    const presetDir = join(tmp, "presets/preset-a");
+    await setupPreset(presetDir, {});
+    await ensureDir(join(presetDir, "skills/cat/a"));
+    await writeTextFile(
+      join(presetDir, "skills/cat/a/SKILL.md"),
+      `---\nname: a\ndescription: from a\ncategory: cat\n---\n# a\n`,
+    );
+
+    // Land mine: prsm.lock is a directory, so the lockfile read/write throws
+    // after prsm.yaml has already been rewritten.
+    await ensureDir(join(tmp, "prsm.lock"));
+
+    const manifest = `name: my-hub
+version: 1.0.0
+runtimes: [claude-code]
+extends:
+  - ${presetDir}
+`;
+    await writeTextFile(join(tmp, "prsm.yaml"), manifest);
+    const before = await readTextFile(join(tmp, "prsm.yaml"));
+
+    const { code, stderr } = await runEject(tmp);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("rolled back");
+
+    // Copies undone…
+    expect(await fileExists(join(tmp, "skills/cat/a/SKILL.md"))).toBe(false);
+    // …and the manifest restored to its original (extends still present).
+    expect(await readTextFile(join(tmp, "prsm.yaml"))).toBe(before);
+  });
+
   it("materializes the full transitive closure — inherited content survives (Codex #2)", async () => {
     // workspace extends team; team extends base. After eject the workspace must
     // be self-contained: base's skills, hooks, permissions, and dependencies
