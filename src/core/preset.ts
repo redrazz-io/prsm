@@ -7,7 +7,7 @@ import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
 import { parseSkillFile, skillToResolved, collectSkillSupportFiles } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
 import { mergeLayers } from "../compiler/merger";
-import { readdir } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
 
 const HASH_SKIP_FILENAMES = new Set([".DS_Store", "Thumbs.db"]);
 
@@ -48,16 +48,31 @@ function normalizeContent(text: string): string {
 
 /**
  * SHA-256 over a fixed set of files, addressed by POSIX-relative path under
- * `baseDir`. Deterministic across filesystems: POSIX path-sort, CRLF→LF and
- * trailing-newline normalization. The path is mixed into the digest so a file
- * rename changes the hash even when bytes are identical.
+ * `baseDir`. The path is mixed into the digest so a rename changes the hash even
+ * when bytes are identical.
+ *
+ * Each file is classified text-or-binary (git's heuristic: a NUL byte or a
+ * failed utf-8 round-trip means binary):
+ *   - text   → decode utf-8 + normalize (CRLF→LF, single trailing newline), so a
+ *              Windows CRLF checkout hashes identically to unix LF.
+ *   - binary → hash the RAW bytes (hex), with NO normalization. Decoding a binary
+ *              asset as utf-8 is lossy (invalid bytes → U+FFFD) and newline
+ *              normalization would mangle it, letting a changed asset collide
+ *              with the original and slip past the checksum gate.
+ * A per-entry "t"/"b" tag keeps the two domains from ever colliding.
  */
 async function hashRelFiles(baseDir: string, relPaths: string[]): Promise<string> {
   const sorted = [...relPaths].sort();
   const parts: string[] = [];
   for (const rel of sorted) {
-    const content = await readTextFile(join(baseDir, ...rel.split("/")));
-    parts.push(rel + "\0" + normalizeContent(content) + "\0");
+    const buf = await readFile(join(baseDir, ...rel.split("/")));
+    const text = buf.toString("utf-8");
+    const isText = !buf.includes(0) && Buffer.from(text, "utf-8").equals(buf);
+    if (isText) {
+      parts.push("t\0" + rel + "\0" + normalizeContent(text) + "\0");
+    } else {
+      parts.push("b\0" + rel + "\0" + buf.toString("hex") + "\0");
+    }
   }
   return sha256Hex(parts.join(""));
 }
