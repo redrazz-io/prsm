@@ -89,11 +89,11 @@ export async function compile(workspaceRoot: string, opts: CompileOptions = {}):
       // Verify the FULL transitive closure against the lockfile, not just the
       // direct preset — a mutated `../base` referenced by a direct preset must
       // be caught even though it lives outside the direct preset's tree (Codex #1).
-      for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir)) {
+      for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir, workspaceRoot)) {
         verifyChecksum(pm.name, `sha256:${await computePresetContentHash(dir)}`);
       }
 
-      layers.push(await loadPresetAsLayer(presetDir));
+      layers.push(await loadPresetAsLayer(presetDir, workspaceRoot));
     }
   }
 

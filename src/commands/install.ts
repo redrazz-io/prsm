@@ -58,7 +58,7 @@ export async function runInstall(root: string, opts: InstallOptions = {}): Promi
     // Lock the full transitive closure of every direct extends, not just the
     // direct presets — otherwise a mutated transitive preset slips past the
     // checksum gate at build time (Codex #1).
-    for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir)) {
+    for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir, root)) {
       const checksum = `sha256:${await computePresetContentHash(dir)}`;
       presetEntries[pm.name] = { version: pm.version, url: dir, checksum };
       logger.success(`Resolved ${pm.name}@${pm.version}`);

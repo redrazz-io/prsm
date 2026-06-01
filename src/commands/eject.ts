@@ -3,7 +3,7 @@ import { loadWorkspace, findWorkspaceRoot } from "../core/workspace";
 import {
   resolvePresetClosure,
   isSkillsShapedRepo,
-  skillsShapedIdentity,
+  skillsShapedResolved,
   type ResolvedPreset,
 } from "../core/preset";
 import { readLockFile, writeLockFile } from "../core/lockfile";
@@ -165,14 +165,13 @@ export function ejectCommand(): Command {
             !(await fileExists(join(presetDir, "preset.yaml"))) &&
             (await isSkillsShapedRepo(presetDir))
           ) {
-            const { name, version } = skillsShapedIdentity(presetDir, root);
-            flattened.push({
-              dir: presetDir,
-              manifest: { name, version, extends: [], skills: [], agents: [], hooks: {}, permissions: [], dependencies: {} },
-            });
+            flattened.push(skillsShapedResolved(presetDir, root));
             continue;
           }
-          flattened.push(...(await resolvePresetClosure(presetDir)));
+          // Pass the workspace root so any transitively-extended skills-shaped
+          // repo in this closure gets the same synthetic identity as a direct
+          // one (the lock key install/build use).
+          flattened.push(...(await resolvePresetClosure(presetDir, root)));
         }
         closurePresets = flattened;
       } catch (err) {
