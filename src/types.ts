@@ -65,6 +65,16 @@ export interface AgentFrontmatter {
   runtimes?: Runtime[];
 }
 
+/** A non-SKILL.md file that lives inside a skill's directory (scripts,
+ *  templates, assets). Carried so adapters can copy the whole skill directory,
+ *  not just its markdown — a skill is a directory, not a single file. */
+export interface SkillSupportFile {
+  /** Path relative to the skill directory, POSIX-normalized (e.g. "scripts/run.sh"). */
+  relPath: string;
+  /** Absolute source path to copy from at compile time. */
+  absPath: string;
+}
+
 export interface ResolvedSkill {
   name: string;
   category: string;
@@ -73,6 +83,8 @@ export interface ResolvedSkill {
   sourcePath: string;
   origin: "local" | "preset";
   originDetail: string;
+  /** Sibling files under the skill's directory, emitted alongside SKILL.md. */
+  supportFiles: SkillSupportFile[];
 }
 
 export interface ResolvedAgent {

@@ -25,6 +25,7 @@ function makeSkill(name: string, deps: Record<string, { source: string; required
     sourcePath: `skills/test/${name}/SKILL.md`,
     origin: "local",
     originDetail: `skills/test/${name}/SKILL.md`,
+    supportFiles: [],
   };
 }
 

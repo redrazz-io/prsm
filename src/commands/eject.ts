@@ -227,13 +227,16 @@ export function ejectCommand(): Command {
       // ── EXECUTE ────────────────────────────────────────────────────────
       // Validation already passed in preflight, but the writes here are still
       // several sequential, individually-fallible filesystem mutations (copy N
-      // trees, rewrite prsm.yaml, rewrite prsm.lock). A failure partway through
-      // — ENOSPC, permission denied, a parent path that is unexpectedly a file,
-      // an interrupt — would otherwise leave copied files on disk while
-      // prsm.yaml/prsm.lock still point at the old state. Route every mutation
-      // through a journaled transaction so ANY execute-phase failure rolls the
-      // workspace back to exactly its pre-eject state, extending the "no changes
-      // made" guarantee beyond preflight (Codex adversarial #1).
+      // trees, rewrite prsm.yaml, rewrite prsm.lock). A handled failure partway
+      // through — ENOSPC, permission denied, a parent path that is unexpectedly
+      // a file, a failed manifest/lock write — would otherwise leave copied
+      // files on disk while prsm.yaml/prsm.lock still point at the old state.
+      // Route every mutation through a journaled transaction so a CAUGHT
+      // execute-phase failure rolls the workspace back to its pre-eject state
+      // (Codex adversarial #1). This narrows the "no changes made" guarantee to
+      // handled filesystem errors — it is NOT crash-safe: a SIGKILL or untrapped
+      // signal mid-copy can still leave partial state, since the journal is
+      // in-memory and only unwinds from the catch below.
       const tx = new FsTransaction();
       try {
         // Copy every preset in the closure, dependency-first — so a

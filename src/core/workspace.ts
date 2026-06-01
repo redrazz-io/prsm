@@ -2,7 +2,7 @@ import { join, relative, dirname } from "path";
 import { readdir } from "fs/promises";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseManifest } from "./manifest";
-import { parseSkillFile, skillToResolved } from "./skill";
+import { parseSkillFile, skillToResolved, collectSkillSupportFiles } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
 import type { WorkspaceManifest, WorkspaceModel, ResolvedSkill, ResolvedAgent } from "../types";
 
@@ -24,7 +24,8 @@ async function discoverSkillsDir(skillsDir: string, workspaceRoot: string): Prom
     const content = await readTextFile(skillMdPath);
     const relPath = relative(workspaceRoot, skillMdPath);
     const parsed = parseSkillFile(content, relPath);
-    skills.push(skillToResolved(parsed, "local", relPath));
+    const supportFiles = await collectSkillSupportFiles(dirname(skillMdPath));
+    skills.push(skillToResolved(parsed, "local", relPath, supportFiles));
   };
 
   // Support BOTH on-disk layouts, mirroring collectSkillsShapedFiles so the
@@ -41,21 +42,37 @@ async function discoverSkillsDir(skillsDir: string, workspaceRoot: string): Prom
     if (!top.isDirectory()) continue;
     const topDir = join(skillsDir, top.name);
 
-    // 2-level: a dir with its own SKILL.md is itself a skill. Its nested dirs
-    // are that skill's supporting files, not sub-skills — do not descend.
+    // A top dir is EITHER a single 2-level skill (its own SKILL.md, nested dirs
+    // are that skill's support files) OR a 3-level category (child dirs are
+    // skills). A dir that looks like both is ambiguous — its nested SKILL.md
+    // files would be silently dropped by the 2-level short-circuit — so fail
+    // loudly rather than guess (Codex adversarial #3).
     const directSkillMd = join(topDir, "SKILL.md");
-    if (await fileExists(directSkillMd)) {
+    const hasDirect = await fileExists(directSkillMd);
+    const skillDirs = await readdir(topDir, { withFileTypes: true });
+    const nestedWithSkill: string[] = [];
+    for (const sd of skillDirs) {
+      if (!sd.isDirectory()) continue;
+      if (await fileExists(join(topDir, sd.name, "SKILL.md"))) nestedWithSkill.push(sd.name);
+    }
+    if (hasDirect && nestedWithSkill.length > 0) {
+      throw new Error(
+        `Ambiguous skill layout under "skills/${top.name}": it has its own SKILL.md ` +
+          `AND nested skill directories (${nestedWithSkill.join(", ")}). A directory must be ` +
+          `either a single 2-level skill or a 3-level category of skills, not both. ` +
+          `Move the nested skills under a different category, or remove the top-level SKILL.md.`,
+      );
+    }
+
+    // 2-level: a dir with its own SKILL.md is itself a skill.
+    if (hasDirect) {
       await addSkill(directSkillMd);
       continue;
     }
 
     // 3-level: treat this dir as a category and descend one level.
-    const skillDirs = await readdir(topDir, { withFileTypes: true });
-    for (const sd of skillDirs) {
-      if (!sd.isDirectory()) continue;
-      const skillMdPath = join(topDir, sd.name, "SKILL.md");
-      if (!(await fileExists(skillMdPath))) continue;
-      await addSkill(skillMdPath);
+    for (const sd of nestedWithSkill) {
+      await addSkill(join(topDir, sd, "SKILL.md"));
     }
   }
   return skills;

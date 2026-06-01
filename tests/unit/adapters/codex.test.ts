@@ -19,6 +19,7 @@ const skill: ResolvedSkill = {
   sourcePath: "skills/platform/copilot/SKILL.md",
   origin: "local",
   originDetail: "local",
+  supportFiles: [],
 };
 
 describe("CodexAdapter", () => {

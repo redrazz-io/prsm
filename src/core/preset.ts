@@ -1,10 +1,10 @@
-import { basename, join, relative, resolve, sep } from "path";
+import { basename, dirname, join, relative, resolve, sep } from "path";
 import { readTextFile, fileExists } from "../utils/fs";
 import { parseYaml } from "../utils/yaml";
 import { sha256Hex } from "../utils/checksum";
 import { z } from "zod";
 import type { PresetManifest, WorkspaceModel, HooksConfig } from "../types";
-import { parseSkillFile, skillToResolved } from "./skill";
+import { parseSkillFile, skillToResolved, collectSkillSupportFiles } from "./skill";
 import { parseAgentFile, agentToResolved } from "./agent";
 import { mergeLayers } from "../compiler/merger";
 import { readdir } from "fs/promises";
@@ -47,18 +47,40 @@ function normalizeContent(text: string): string {
 }
 
 /**
- * SHA-256 of the full preset content tree.
- * Deterministic across filesystems: POSIX path-sort, CRLF→LF and trailing-newline
- * normalization. Skips OS noise files (.DS_Store, Thumbs.db).
+ * SHA-256 over a fixed set of files, addressed by POSIX-relative path under
+ * `baseDir`. Deterministic across filesystems: POSIX path-sort, CRLF→LF and
+ * trailing-newline normalization. The path is mixed into the digest so a file
+ * rename changes the hash even when bytes are identical.
  */
-export async function computePresetContentHash(presetDir: string): Promise<string> {
-  const relPaths = (await collectPresetFiles(presetDir, presetDir)).sort();
+async function hashRelFiles(baseDir: string, relPaths: string[]): Promise<string> {
+  const sorted = [...relPaths].sort();
   const parts: string[] = [];
-  for (const rel of relPaths) {
-    const content = await readTextFile(join(presetDir, ...rel.split("/")));
+  for (const rel of sorted) {
+    const content = await readTextFile(join(baseDir, ...rel.split("/")));
     parts.push(rel + "\0" + normalizeContent(content) + "\0");
   }
   return sha256Hex(parts.join(""));
+}
+
+/**
+ * SHA-256 of the full preset content tree. A real preset is a curated directory,
+ * so hashing everything under it is correct. Skips OS noise files.
+ */
+export async function computePresetContentHash(presetDir: string): Promise<string> {
+  return hashRelFiles(presetDir, await collectPresetFiles(presetDir, presetDir));
+}
+
+/**
+ * SHA-256 of ONLY the build-relevant files of a skills-shaped repo — each
+ * skill's SKILL.md plus its support files. Unlike a real preset, a skills-shaped
+ * source is an arbitrary repo (`./vendor/some-skills-repo`) that also contains
+ * `.git/`, READMEs, tests, and other files prsm never emits. Hashing the whole
+ * tree (as computePresetContentHash does) would let benign noise trip the build
+ * checksum gate even though the emitted skills are unchanged (Codex adversarial
+ * #2). This hashes exactly the set of files the build consumes — no more.
+ */
+export async function computeSkillsShapedContentHash(dir: string): Promise<string> {
+  return hashRelFiles(dir, await collectSkillsShapedBuildFiles(dir));
 }
 
 const PresetManifestSchema = z.object({
@@ -243,18 +265,57 @@ async function collectSkillsShapedFiles(dir: string): Promise<string[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    // 2-level: skills/<name>/SKILL.md — a dir with its own SKILL.md is a skill.
     const direct = `skills/${entry.name}/SKILL.md`;
-    if (await fileExists(join(dir, direct))) {
+    const hasDirect = await fileExists(join(dir, direct));
+
+    // Find nested skill dirs (the 3-level case).
+    const skillNames = await readdir(join(skillsDir, entry.name), { withFileTypes: true });
+    const nestedWithSkill: string[] = [];
+    for (const sn of skillNames) {
+      if (!sn.isDirectory()) continue;
+      if (await fileExists(join(dir, `skills/${entry.name}/${sn.name}/SKILL.md`))) {
+        nestedWithSkill.push(sn.name);
+      }
+    }
+
+    // A dir that is BOTH a 2-level skill and a 3-level category is ambiguous —
+    // the old short-circuit silently dropped the nested skills. Fail loudly
+    // (mirrors discoverSkillsDir; Codex adversarial #3).
+    if (hasDirect && nestedWithSkill.length > 0) {
+      throw new Error(
+        `Ambiguous skill layout under "skills/${entry.name}": it has its own SKILL.md ` +
+          `AND nested skill directories (${nestedWithSkill.join(", ")}). A directory must be ` +
+          `either a single 2-level skill or a 3-level category of skills, not both.`,
+      );
+    }
+
+    // 2-level: skills/<name>/SKILL.md — a dir with its own SKILL.md is a skill;
+    // its nested dirs are that skill's support files, not sub-skills.
+    if (hasDirect) {
       out.push(direct);
       continue;
     }
-    // 3-level: skills/<category>/<name>/SKILL.md — descend one level.
-    const skillNames = await readdir(join(skillsDir, entry.name), { withFileTypes: true });
-    for (const sn of skillNames) {
-      if (!sn.isDirectory()) continue;
-      const rel = `skills/${entry.name}/${sn.name}/SKILL.md`;
-      if (await fileExists(join(dir, rel))) out.push(rel);
+    // 3-level: skills/<category>/<name>/SKILL.md.
+    for (const sn of nestedWithSkill) {
+      out.push(`skills/${entry.name}/${sn}/SKILL.md`);
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * The files that actually affect a skills-shaped repo's build output: every
+ * skill's SKILL.md plus its support files, addressed relative to `dir`. This is
+ * the exact set computeSkillsShapedContentHash hashes AND the set the adapters
+ * emit, so "what is locked" and "what is built" stay in lockstep.
+ */
+async function collectSkillsShapedBuildFiles(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const skillMdRel of await collectSkillsShapedFiles(dir)) {
+    out.push(skillMdRel);
+    const skillDir = dirname(join(dir, ...skillMdRel.split("/")));
+    for (const sf of await collectSkillSupportFiles(skillDir)) {
+      out.push(relative(dir, sf.absPath).split(sep).join("/"));
     }
   }
   return out.sort();
@@ -322,6 +383,20 @@ export function skillsShapedResolved(dir: string, workspaceRoot: string): Resolv
 }
 
 /**
+ * The `sha256:`-prefixed content checksum for a resolved closure node. A
+ * skills-shaped node hashes only its build-relevant files; a real preset hashes
+ * its full tree. Centralized so install (lock) and compile (verify) pick the
+ * SAME hash for the SAME node — a transitive skills-shaped node must not be
+ * locked with one hash and verified with another (multi-consumer trace).
+ */
+export async function resolvedPresetChecksum(p: ResolvedPreset): Promise<string> {
+  const hex = p.skillsShaped
+    ? await computeSkillsShapedContentHash(p.dir)
+    : await computePresetContentHash(p.dir);
+  return `sha256:${hex}`;
+}
+
+/**
  * Load a skills-shaped repo as a build layer — the no-manifest counterpart to
  * loadPresetAsLayer. Skills are tagged origin "preset" with the synthetic name
  * as originDetail. There is no extends resolution, no hooks, no permissions:
@@ -336,7 +411,8 @@ export async function loadSkillsShapedAsLayer(
   for (const rel of await collectSkillsShapedFiles(dir)) {
     const p = join(dir, ...rel.split("/"));
     const parsed = parseSkillFile(await readTextFile(p), p);
-    skills.push(skillToResolved(parsed, "preset", name));
+    const supportFiles = await collectSkillSupportFiles(dirname(p));
+    skills.push(skillToResolved(parsed, "preset", name, supportFiles));
   }
   return {
     name,
@@ -389,7 +465,8 @@ async function loadOwnPresetLayer(
         const p = join(skillsDir, cat.name, sn.name, "SKILL.md");
         if (await fileExists(p)) {
           const parsed = parseSkillFile(await readTextFile(p), p);
-          skills.push(skillToResolved(parsed, "preset", manifest.name));
+          const supportFiles = await collectSkillSupportFiles(join(skillsDir, cat.name, sn.name));
+          skills.push(skillToResolved(parsed, "preset", manifest.name, supportFiles));
         }
       }
     }

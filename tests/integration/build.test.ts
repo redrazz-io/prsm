@@ -66,6 +66,37 @@ describe("compile", () => {
     expect(await fileExists(join(tmp, ".agents/skills/hub-platform-my-skill/SKILL.md"))).toBe(true);
   });
 
+  it("emits a LOCAL skill's support files to both runtimes (#1 uniform)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    await ensureDir(join(tmp, "skills/platform/my-skill/lib"));
+    await writeTextFile(join(tmp, "skills/platform/my-skill/SKILL.md"), SKILL_MD);
+    await writeTextFile(join(tmp, "skills/platform/my-skill/helper.py"), "print('hi')\n");
+    await writeTextFile(join(tmp, "skills/platform/my-skill/lib/util.py"), "x = 1\n");
+
+    await compile(tmp);
+
+    for (const base of [".claude/skills", ".agents/skills"]) {
+      expect(await fileExists(join(tmp, base, "hub-platform-my-skill/helper.py"))).toBe(true);
+      expect(await fileExists(join(tmp, base, "hub-platform-my-skill/lib/util.py"))).toBe(true);
+    }
+  });
+
+  it("throws on an ambiguous mixed 2-level/3-level LOCAL skill layout (#3)", async () => {
+    await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
+    // skills/platform has BOTH its own SKILL.md and a nested skill dir.
+    await ensureDir(join(tmp, "skills/platform/nested"));
+    await writeTextFile(
+      join(tmp, "skills/platform/SKILL.md"),
+      `---\nname: platform\ndescription: direct\n---\n# direct\n`,
+    );
+    await writeTextFile(
+      join(tmp, "skills/platform/nested/SKILL.md"),
+      `---\nname: nested\ndescription: nested\n---\n# nested\n`,
+    );
+
+    await expect(compile(tmp)).rejects.toThrow(/ambiguous|layout/i);
+  });
+
   it("filters per-item frontmatter.runtimes when emitting to each adapter (#3)", async () => {
     await writeTextFile(join(tmp, "prsm.yaml"), MANIFEST);
     // A skill declared for claude-code only — must NOT reach the Codex output.

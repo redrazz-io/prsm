@@ -5,8 +5,9 @@ import { getAdapter } from "../adapters/index";
 import { readLockFile } from "../core/lockfile";
 import {
   loadPresetAsLayer,
-  computePresetContentHash,
+  computeSkillsShapedContentHash,
   resolvePresetClosure,
+  resolvedPresetChecksum,
   isSkillsShapedRepo,
   skillsShapedIdentity,
   loadSkillsShapedAsLayer,
@@ -76,9 +77,10 @@ export async function compile(workspaceRoot: string, opts: CompileOptions = {}):
         }
         if (await isSkillsShapedRepo(presetDir)) {
           const { name } = skillsShapedIdentity(presetDir, workspaceRoot);
-          // Reuse the SAME integrity machinery as real presets — the synthetic
-          // identity and computePresetContentHash keep the checksum gate intact.
-          verifyChecksum(name, `sha256:${await computePresetContentHash(presetDir)}`);
+          // Same integrity machinery as real presets, but hashing only the
+          // build-relevant files (skills/** + support files) so repo noise can't
+          // trip the gate — must match install's skills-shaped hash.
+          verifyChecksum(name, `sha256:${await computeSkillsShapedContentHash(presetDir)}`);
           layers.push(await loadSkillsShapedAsLayer(presetDir, workspaceRoot));
           continue;
         }
@@ -89,8 +91,8 @@ export async function compile(workspaceRoot: string, opts: CompileOptions = {}):
       // Verify the FULL transitive closure against the lockfile, not just the
       // direct preset — a mutated `../base` referenced by a direct preset must
       // be caught even though it lives outside the direct preset's tree (Codex #1).
-      for (const { dir, manifest: pm } of await resolvePresetClosure(presetDir, workspaceRoot, { strictPreset: opts.strictPreset })) {
-        verifyChecksum(pm.name, `sha256:${await computePresetContentHash(dir)}`);
+      for (const node of await resolvePresetClosure(presetDir, workspaceRoot, { strictPreset: opts.strictPreset })) {
+        verifyChecksum(node.manifest.name, await resolvedPresetChecksum(node));
       }
 
       layers.push(await loadPresetAsLayer(presetDir, workspaceRoot, { strictPreset: opts.strictPreset }));

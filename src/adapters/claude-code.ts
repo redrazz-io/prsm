@@ -2,6 +2,7 @@ import { join, dirname } from "path";
 import { writeTextFile, readTextFile, ensureDir, fileExists } from "../utils/fs";
 import {
   trackGeneratedFile,
+  copyTrackedFile,
   cleanGeneratedFiles,
   readManagedHookEvents,
   writeManagedHookEvents,
@@ -33,10 +34,16 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
 
   async compileSkill(skill: ResolvedSkill, outputBase: string, output?: OutputConfig): Promise<void> {
     const dirName = `hub-${skill.category}-${skill.name}`;
-    const outPath = join(this.skillOutputDir(outputBase, output), dirName, "SKILL.md");
+    const destSkillDir = join(this.skillOutputDir(outputBase, output), dirName);
+    const outPath = join(destSkillDir, "SKILL.md");
     const compiled = matter.stringify(skill.content, skill.frontmatter as Record<string, unknown>);
     await writeTextFile(outPath, compiled);
     await trackGeneratedFile(outputBase, this.id, outPath);
+    // A skill is a directory: copy its sibling files (scripts, templates,
+    // assets) so a skill that references its bundled files works at runtime.
+    for (const sf of skill.supportFiles) {
+      await copyTrackedFile(outputBase, this.id, sf.absPath, join(destSkillDir, ...sf.relPath.split("/")));
+    }
   }
 
   async compileAgent(agent: ResolvedAgent, outputBase: string, output?: OutputConfig): Promise<void> {
