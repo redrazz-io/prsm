@@ -128,20 +128,33 @@ export interface ResolvedPreset {
  * same workspace root every caller resolved the refs against, or the
  * install-time lock key and build-time lookup will diverge. It defaults to
  * presetDir for callers that never extend a skills-shaped repo.
+ *
+ * `strictPreset` propagates the --strict-preset contract INTO the recursive
+ * walk: every ref in the closure — transitive ones included — must carry a
+ * preset.yaml, so a real preset cannot smuggle a manifest-less skills-shaped
+ * source past the flag. The direct callers also check the flag before calling
+ * here, but the transitive nodes are only reachable through this walk, so the
+ * gate must live here too (it moved with the bridge logic).
  */
+export interface ResolveClosureOptions {
+  strictPreset?: boolean;
+}
+
 export async function resolvePresetClosure(
   presetDir: string,
   workspaceRoot: string = presetDir,
+  opts: ResolveClosureOptions = {},
 ): Promise<ResolvedPreset[]> {
   const out: ResolvedPreset[] = [];
   const added = new Set<string>(); // canonical dirs already in `out` (dedup)
-  await walkPresetClosure(presetDir, workspaceRoot, new Set(), out, added);
+  await walkPresetClosure(presetDir, workspaceRoot, opts, new Set(), out, added);
   return out;
 }
 
 async function walkPresetClosure(
   presetDir: string,
   workspaceRoot: string,
+  opts: ResolveClosureOptions,
   branch: Set<string>, // canonical dirs along the current branch (cycle detection)
   out: ResolvedPreset[],
   added: Set<string>,
@@ -162,6 +175,15 @@ async function walkPresetClosure(
     // transitive extends: into a skills-shaped repo works exactly like a direct
     // one. Otherwise, the original clear error stands.
     if (await isSkillsShapedRepo(presetDir)) {
+      // --strict-preset forbids manifest-less refs ANYWHERE in the closure, so a
+      // real preset can't smuggle a skills-shaped source past the flag.
+      if (opts.strictPreset) {
+        const rel = relative(workspaceRoot, presetDir).split(sep).join("/") || presetDir;
+        throw new Error(
+          `No preset.yaml found in transitive extends: ref "${rel}" and --strict-preset is set. ` +
+            `Add a preset.yaml, or drop --strict-preset to allow skills-shaped sources.`,
+        );
+      }
       if (!added.has(canonical)) {
         added.add(canonical);
         out.push(skillsShapedResolved(presetDir, workspaceRoot));
@@ -176,7 +198,7 @@ async function walkPresetClosure(
   const nextBranch = new Set(branch);
   nextBranch.add(canonical);
   for (const ref of manifest.extends ?? []) {
-    await walkPresetClosure(resolve(presetDir, ref), workspaceRoot, nextBranch, out, added);
+    await walkPresetClosure(resolve(presetDir, ref), workspaceRoot, opts, nextBranch, out, added);
   }
 
   if (!added.has(canonical)) {
@@ -332,8 +354,9 @@ export async function loadSkillsShapedAsLayer(
 export async function loadPresetAsLayer(
   presetDir: string,
   workspaceRoot: string = presetDir,
+  opts: ResolveClosureOptions = {},
 ): Promise<WorkspaceModel> {
-  const closure = await resolvePresetClosure(presetDir, workspaceRoot);
+  const closure = await resolvePresetClosure(presetDir, workspaceRoot, opts);
   const layers: WorkspaceModel[] = [];
   for (const p of closure) {
     // A skills-shaped node has no real manifest and may use the 2-level layout,
